@@ -920,7 +920,7 @@ void create_disk_layout(const std::string base_file, const std::string mem_index
     medoid = (uint64_t)medoid_u32;
     if (vamana_frozen_num == 1)
         vamana_frozen_loc = medoid;
-    max_node_len = (((uint64_t)width_u32 + 1) * sizeof(uint32_t)) + (ndims_64 * sizeof(T));
+    max_node_len = (((uint64_t)width_u32 + 1) * sizeof(uint32_t)));
     nnodes_per_sector = defaults::SECTOR_LEN / max_node_len; // 0 if max_node_len > SECTOR_LEN
 
     diskann::cout << "medoid: " << medoid << "B" << std::endl;
@@ -1373,7 +1373,7 @@ int build_disk_index(const char *dataFilePath, const char *indexFilePath, const 
     }
     if (created_temp_file_for_processed_data)
         std::remove(prepped_base.c_str());
-    // std::remove(mem_index_path.c_str());
+    std::remove(mem_index_path.c_str());
     // std::remove((mem_index_path + ".data").c_str());
     std::remove((mem_index_path + ".tags").c_str());
     if (use_disk_pq)
