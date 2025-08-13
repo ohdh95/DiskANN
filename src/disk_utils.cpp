@@ -848,7 +848,7 @@ void create_disk_layout(const std::string base_file, const std::string mem_index
                         const std::string reorder_data_file)
 {
     uint32_t npts, ndims;
-
+    std::cout << base_file << "?????????????????????????????BASE\n";
     // amount to read or write in one shot
     size_t read_blk_size = 64 * 1024 * 1024;
     size_t write_blk_size = read_blk_size;

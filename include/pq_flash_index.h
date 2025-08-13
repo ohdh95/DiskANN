@@ -34,14 +34,14 @@ template <typename T, typename LabelT = uint32_t> class PQFlashIndex
     // load compressed data, and obtains the handle to the disk-resident index
     DISKANN_DLLEXPORT int load(uint32_t num_threads, const char *index_prefix);
 #endif
-
+    DISKANN_DLLEXPORT int load_mem(const char *index_prefix);
 #ifdef EXEC_ENV_OLS
     DISKANN_DLLEXPORT int load_from_separate_paths(diskann::MemoryMappedFiles &files, uint32_t num_threads,
                                                    const char *index_filepath, const char *pivots_filepath,
                                                    const char *compressed_filepath);
 #else
     DISKANN_DLLEXPORT int load_from_separate_paths(uint32_t num_threads, const char *index_filepath,
-                                                   const char *pivots_filepath, const char *compressed_filepath);
+                                                   const char *pivots_filepath, const char *compressed_filepath, const char *mem_index_filepath);
 #endif
 
     DISKANN_DLLEXPORT void load_cache_list(std::vector<uint32_t> &node_list);
@@ -183,6 +183,9 @@ template <typename T, typename LabelT = uint32_t> class PQFlashIndex
     uint8_t *data = nullptr;
     uint64_t _n_chunks;
     FixedChunkPQTable _pq_table;
+
+    // 이웃 버퍼
+    uint32_t *mem_index = nullptr; // uint32_t[max_degree * disk_nnodes]
 
     // distance comparator
     std::shared_ptr<Distance<T>> _dist_cmp;

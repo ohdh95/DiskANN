@@ -62,6 +62,11 @@ template <typename T, typename LabelT> PQFlashIndex<T, LabelT>::~PQFlashIndex()
     {
         delete[] data;
     }
+
+    if (mem_index != nullptr)
+    {
+        delete[] mem_index;
+    }
 #endif
 
     if (_centroid_data != nullptr)
@@ -160,7 +165,7 @@ std::vector<bool> PQFlashIndex<T, LabelT>::read_nodes(const std::vector<uint32_t
         AlignedRead read;
         read.len = num_sectors * defaults::SECTOR_LEN;
         read.buf = buf + i * num_sectors * defaults::SECTOR_LEN;
-        read.offset = get_node_sector(node_id) * defaults::SECTOR_LEN;
+        read.offset = (node_id / _nnodes_per_sector) * defaults::SECTOR_LEN;
         read_reqs.push_back(read);
     }
 
@@ -182,7 +187,7 @@ std::vector<bool> PQFlashIndex<T, LabelT>::read_nodes(const std::vector<uint32_t
         }
 #endif
 
-        char *node_buf = offset_to_node((char *)read_reqs[i].buf, node_ids[i]);
+        char *node_buf = (char *)((char *)read_reqs[i].buf + (node_ids[i] % _nnodes_per_sector) * sizeof(T) * this->_data_dim); // offset_to_node((char *)read_reqs[i].buf, node_ids[i]);
 
         if (coord_buffers[i] != nullptr)
         {
@@ -192,7 +197,7 @@ std::vector<bool> PQFlashIndex<T, LabelT>::read_nodes(const std::vector<uint32_t
 
         if (nbr_buffers[i].second != nullptr)
         {
-            uint32_t *node_nhood = offset_to_node_nhood(node_buf);
+            uint32_t *node_nhood = this->mem_index + node_ids[i] * (this->_max_degree + 1); // offset_to_node_nhood(node_buf);
             auto num_nbrs = *node_nhood;
             nbr_buffers[i].first = num_nbrs;
             memcpy(nbr_buffers[i].second, node_nhood + 1, num_nbrs * sizeof(uint32_t));
@@ -761,18 +766,27 @@ int PQFlashIndex<T, LabelT>::load(MemoryMappedFiles &files, uint32_t num_threads
 template <typename T, typename LabelT> int PQFlashIndex<T, LabelT>::load(uint32_t num_threads, const char *index_prefix)
 {
 #endif
-    std::cout << "search_disk_index!!!!!!!!!!!!!!!! " << index_prefix << std::endl;
     std::string pq_table_bin = std::string(index_prefix) + "_pq_pivots.bin";
     std::string pq_compressed_vectors = std::string(index_prefix) + "_pq_compressed.bin";
     std::string _disk_index_file = std::string(index_prefix) + "_disk.index";
+    
 #ifdef EXEC_ENV_OLS
     return load_from_separate_paths(files, num_threads, _disk_index_file.c_str(), pq_table_bin.c_str(),
                                     pq_compressed_vectors.c_str());
 #else
     return load_from_separate_paths(num_threads, _disk_index_file.c_str(), pq_table_bin.c_str(),
-                                    pq_compressed_vectors.c_str());
+                                    pq_compressed_vectors.c_str(), index_prefix);
 #endif
 }
+
+// template <typename T, typename LabelT>
+// int PQFlashIndex<T, LabelT>::load_mem(const char *index_prefix)
+// {
+//     std::string mem_index_file = std::string(index_prefix) + "_mem.index";
+//     std::string data_file = std::string(index_prefix) + "_mem.index.data";
+
+//     mem_index = new T[(_max_degree + 1) * ]
+// }
 
 #ifdef EXEC_ENV_OLS
 template <typename T, typename LabelT>
@@ -783,7 +797,7 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(diskann::MemoryMappedFiles
 #else
 template <typename T, typename LabelT>
 int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, const char *index_filepath,
-                                                      const char *pivots_filepath, const char *compressed_filepath)
+                                                      const char *pivots_filepath, const char *compressed_filepath, const char *mem_index_filepath)
 {
 #endif
     std::string pq_table_bin = pivots_filepath;
@@ -799,6 +813,10 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
     size_t num_pts_in_label_file = 0;
 
     size_t pq_file_dim, pq_file_num_centroids;
+
+    std::string mem_index_file = std::string(mem_index_filepath) + "_mem.index";
+    std::string data_file = std::string(mem_index_filepath) + "_mem.index.data";
+
 #ifdef EXEC_ENV_OLS
     get_bin_metadata(files, pq_table_bin, pq_file_num_centroids, pq_file_dim, METADATA_SIZE);
 #else
@@ -1022,20 +1040,30 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
 
     char *bytes = getHeaderBytes();
     ContentBuf buf(bytes, HEADER_SIZE);
-    std::basic_istream<char> index_metadata(&buf);
+    std::basic_istream<char> mem_index(&buf);
 #else
-    std::ifstream index_metadata(_disk_index_file, std::ios::binary);
+    // 4byte nr(metadata 개수, 9)
+    // 4byte nc(1)
+    // 8byte 벡터 개수
+    // 8byte dim
+    // 8byte 중심점 ID
+    // 8byte max_node_len(644)
+    // 8byte _nnodes_per_sector(6)
+    // 8byte frozen_point 개수(0)
+    // 8byte file_frozen_id(0)
+    // 8byte _reorder_data_exists(0)
+    std::ifstream index(mem_index_file, std::ios::binary);
 #endif
 
     uint32_t nr, nc; // metadata itself is stored as bin format (nr is number of
                      // metadata, nc should be 1)
-    READ_U32(index_metadata, nr);
-    READ_U32(index_metadata, nc);
+    READ_U32(index, nr);
+    READ_U32(index, nc);
 
     uint64_t disk_nnodes;
     uint64_t disk_ndims; // can be disk PQ dim if disk_PQ is set to true
-    READ_U64(index_metadata, disk_nnodes);
-    READ_U64(index_metadata, disk_ndims);
+    READ_U64(index, disk_nnodes);
+    READ_U64(index, disk_ndims);
 
     if (disk_nnodes != _num_points)
     {
@@ -1046,9 +1074,10 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
     }
 
     size_t medoid_id_on_file;
-    READ_U64(index_metadata, medoid_id_on_file);
-    READ_U64(index_metadata, _max_node_len);
-    READ_U64(index_metadata, _nnodes_per_sector);
+    READ_U64(index, medoid_id_on_file);
+    READ_U64(index, _max_node_len);
+    READ_U64(index, _nnodes_per_sector);
+    _nnodes_per_sector = 4096 / (disk_ndims * sizeof(T));
     _max_degree = ((_max_node_len - _disk_bytes_per_point) / sizeof(uint32_t)) - 1;
 
     if (_max_degree > defaults::MAX_GRAPH_DEGREE)
@@ -1061,9 +1090,9 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
     }
 
     // setting up concept of frozen points in disk index for streaming-DiskANN
-    READ_U64(index_metadata, this->_num_frozen_points);
+    READ_U64(index, this->_num_frozen_points);
     uint64_t file_frozen_id;
-    READ_U64(index_metadata, file_frozen_id);
+    READ_U64(index, file_frozen_id);
     if (this->_num_frozen_points == 1)
         this->_frozen_location = file_frozen_id;
     if (this->_num_frozen_points == 1)
@@ -1072,19 +1101,23 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
                       << ". Will not output it at search time." << std::endl;
     }
 
-    READ_U64(index_metadata, this->_reorder_data_exists);
-    if (this->_reorder_data_exists)
-    {
-        if (this->_use_disk_index_pq == false)
-        {
-            throw ANNException("Reordering is designed for used with disk PQ "
-                               "compression option",
-                               -1, __FUNCSIG__, __FILE__, __LINE__);
-        }
-        READ_U64(index_metadata, this->_reorder_data_start_sector);
-        READ_U64(index_metadata, this->_ndims_reorder_vecs);
-        READ_U64(index_metadata, this->_nvecs_per_sector);
-    }
+    READ_U64(index, this->_reorder_data_exists);
+    // if (this->_reorder_data_exists)
+    // {
+    //     if (this->_use_disk_index_pq == false)
+    //     {
+    //         throw ANNException("Reordering is designed for used with disk PQ "
+    //                            "compression option",
+    //                            -1, __FUNCSIG__, __FILE__, __LINE__);
+    //     }
+    //     READ_U64(mem_index, this->_reorder_data_start_sector);
+    //     READ_U64(mem_index, this->_ndims_reorder_vecs);
+    //     READ_U64(mem_index, this->_nvecs_per_sector);
+    // }
+
+    this->mem_index = new uint32_t[(_max_degree + 1) * disk_nnodes];
+
+    index.read((char *)this->mem_index, (_max_degree + 1) * disk_nnodes * sizeof(uint32_t));
 
     diskann::cout << "Disk-Index File Meta-data: ";
     diskann::cout << "# nodes per sector: " << _nnodes_per_sector;
@@ -1094,30 +1127,25 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
 #ifdef EXEC_ENV_OLS
     delete[] bytes;
 #else
-    index_metadata.close();
+    index.close();
 #endif
 
 #ifndef EXEC_ENV_OLS
     // open AlignedFileReader handle to index_file
     // index 파일 오픈!!!
-    std::string index_fname(_disk_index_file);
+    // std::string index_fname(_disk_index_file);
+    std::string index_fname(data_file);
     reader->open(index_fname);
     this->setup_thread_data(num_threads);
     this->_max_nthreads = num_threads;
 
 #endif
 
-#ifdef EXEC_ENV_OLS
-    if (files.fileExists(medoids_file))
-    {
-        size_t tmp_dim;
-        diskann::load_bin<uint32_t>(files, norm_file, medoids_file, _medoids, _num_medoids, tmp_dim);
-#else
+
     if (file_exists(medoids_file))
     {
         size_t tmp_dim;
         diskann::load_bin<uint32_t>(medoids_file, _medoids, _num_medoids, tmp_dim);
-#endif
 
         if (tmp_dim != 1)
         {
@@ -1127,13 +1155,9 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
                    << std::endl;
             throw diskann::ANNException(stream.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
         }
-#ifdef EXEC_ENV_OLS
-        if (!files.fileExists(centroids_file))
-        {
-#else
+
         if (!file_exists(centroids_file))
         {
-#endif
             diskann::cout << "Centroid data file not found. Using corresponding vectors "
                              "for the medoids "
                           << std::endl;
@@ -1142,12 +1166,9 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
         else
         {
             size_t num_centroids, aligned_tmp_dim;
-#ifdef EXEC_ENV_OLS
-            diskann::load_aligned_bin<float>(files, centroids_file, _centroid_data, num_centroids, tmp_dim,
-                                             aligned_tmp_dim);
-#else
+
             diskann::load_aligned_bin<float>(centroids_file, _centroid_data, num_centroids, tmp_dim, aligned_tmp_dim);
-#endif
+
             if (aligned_tmp_dim != _aligned_dim || num_centroids != _num_medoids)
             {
                 std::stringstream stream;
@@ -1171,19 +1192,12 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
 
     std::string norm_file = std::string(_disk_index_file) + "_max_base_norm.bin";
 
-#ifdef EXEC_ENV_OLS
-    if (files.fileExists(norm_file) && metric == diskann::Metric::INNER_PRODUCT)
-    {
-        uint64_t dumr, dumc;
-        float *norm_val;
-        diskann::load_bin<float>(files, norm_val, dumr, dumc);
-#else
     if (file_exists(norm_file) && metric == diskann::Metric::INNER_PRODUCT)
     {
         uint64_t dumr, dumc;
         float *norm_val;
         diskann::load_bin<float>(norm_file, norm_val, dumr, dumc);
-#endif
+
         this->_max_base_norm = norm_val[0];
         diskann::cout << "Setting re-scaling factor of base vectors to " << this->_max_base_norm << std::endl;
         delete[] norm_val;
@@ -1396,11 +1410,10 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         {
             auto nbr = retset.closest_unexpanded(); // 가장 가까운 이웃, Neighbor(unsigned id, float distance, bool expanded)
             num_seen++;
-            // cache할 경우에 필요
+            // cache할 경우에 필요, 일단 패스
             // auto iter = _nhood_cache.find(nbr.id);
             // if (iter != _nhood_cache.end())
             // {
-            //     std::cout << "Cache hit!!!!!!!!!!!!!!!!!" << std::endl;
             //     cached_nhoods.push_back(std::make_pair(nbr.id, iter->second));
             //     if (stats != nullptr)
             //     {
@@ -1423,6 +1436,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
 
         // read nhoods of frontier ids
         // frontier에 있는 벡터들의 이웃 읽기 요청
+        // 일단 1개 벡터 크기가 4KB보다 작은 것들만 지원
         if (!frontier.empty())
         {
             if (stats != nullptr)
@@ -1437,7 +1451,9 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                 frontier_nhoods.push_back(fnhood);
                 // 읽기 요청 생성
                 // frontier_read_reqs: (uint64_t offset, uint64_t len, void *buf)
-                frontier_read_reqs.emplace_back(get_node_sector((size_t)id) * defaults::SECTOR_LEN,
+                // frontier_read_reqs.emplace_back(get_node_sector((size_t)id) * defaults::SECTOR_LEN,
+                //                                 num_sectors_per_node * defaults::SECTOR_LEN, fnhood.second);
+                frontier_read_reqs.emplace_back((id / _nnodes_per_sector) * defaults::SECTOR_LEN,
                                                 num_sectors_per_node * defaults::SECTOR_LEN, fnhood.second);
                 if (stats != nullptr)
                 {
@@ -1460,7 +1476,6 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         // cache 할 때 사용
         // for (auto &cached_nhood : cached_nhoods)
         // {
-        //     std::cout << "Cache hit!!!!!!!!!!!!!!!!!" << std::endl;
         //     auto global_cache_iter = _coord_cache.find(cached_nhood.first);
         //     T *node_fp_coords_copy = global_cache_iter->second;
         //     float cur_expanded_dist;
@@ -1513,8 +1528,8 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         // frontier_nhoods에는 frontier의 {id, 읽어온 섹터 버퍼}
         for (auto &frontier_nhood : frontier_nhoods)
         {
-            char *node_disk_buf = offset_to_node(frontier_nhood.second, frontier_nhood.first); // node_disk_buf: 읽어온 전체 중 해당 ID 시작 지점
-            uint32_t *node_buf = offset_to_node_nhood(node_disk_buf); // node_buf: 이웃 개수 + 이웃 버퍼(원본 제외)
+            char *node_disk_buf = (char *)(frontier_nhood.second + (frontier_nhood.first % _nnodes_per_sector) * sizeof(T) * this->_data_dim); // offset_to_node(frontier_nhood.second, frontier_nhood.first); // node_disk_buf: 읽어온 전체 중 해당 ID 시작 지점
+            uint32_t *node_buf = this->mem_index + (frontier_nhood.first) * (this->_max_degree + 1); // offset_to_node_nhood(node_disk_buf); // node_buf: 이웃 개수 + 이웃 버퍼(원본 제외)
             uint64_t nnbrs = (uint64_t)(*node_buf); // nnbrs: 이웃 개수
             T *node_fp_coords = offset_to_node_coords(node_disk_buf); // node_disk_buf를 T*로 변환
             memcpy(data_buf, node_fp_coords, _disk_bytes_per_point); // data_buf에 원본 벡터 복사, _disk_bytes_per_point = dim * sizeof(T)

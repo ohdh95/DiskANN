@@ -177,7 +177,6 @@ void FixedChunkPQTable::preprocess_query(float *query_vec)
     std::vector<float> tmp(ndims, 0);
     // if (use_rotation)
     // {
-    //     std::cout << "use rotation!!!!!!!!!!!!!!!!!!!!!" << std::endl;
     //     for (uint32_t d = 0; d < ndims; d++)
     //     {
     //         for (uint32_t d1 = 0; d1 < ndims; d1++)

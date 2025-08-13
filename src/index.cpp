@@ -536,7 +536,6 @@ void Index<T, TagT, LabelT>::load(const char *filename, uint32_t num_threads, ui
 {
 #endif
     // search_memory_index
-    std::cout << "search_memory_index!!!!!!!!!!!!!!!! " << filename << std::endl;
     std::unique_lock<std::shared_timed_mutex> ul(_update_lock);
     std::unique_lock<std::shared_timed_mutex> cl(_consolidate_lock);
     std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
@@ -1946,7 +1945,6 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::_search(const DataType &qu
 {
     try
     {
-        // diskann::cout << "mem_search!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! " << std::endl;
         auto typed_query = std::any_cast<const T *>(query);
         if (typeid(uint32_t *) == indices.type())
         {
