@@ -175,22 +175,24 @@ void FixedChunkPQTable::preprocess_query(float *query_vec)
         query_vec[d] -= centroid[d];
     }
     std::vector<float> tmp(ndims, 0);
-    if (use_rotation)
-    {
-        for (uint32_t d = 0; d < ndims; d++)
-        {
-            for (uint32_t d1 = 0; d1 < ndims; d1++)
-            {
-                tmp[d] += query_vec[d1] * rotmat_tr[d1 * ndims + d];
-            }
-        }
-        std::memcpy(query_vec, tmp.data(), ndims * sizeof(float));
-    }
+    // if (use_rotation)
+    // {
+    //     std::cout << "use rotation!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+    //     for (uint32_t d = 0; d < ndims; d++)
+    //     {
+    //         for (uint32_t d1 = 0; d1 < ndims; d1++)
+    //         {
+    //             tmp[d] += query_vec[d1] * rotmat_tr[d1 * ndims + d];
+    //         }
+    //     }
+    //     std::memcpy(query_vec, tmp.data(), ndims * sizeof(float));
+    // }
 }
 
 // assumes pre-processed query
 void FixedChunkPQTable::populate_chunk_distances(const float *query_vec, float *dist_vec)
 {
+    // n_chunks = 32
     memset(dist_vec, 0, 256 * n_chunks * sizeof(float));
     // chunk wise distance computation
     for (size_t chunk = 0; chunk < n_chunks; chunk++)
@@ -321,9 +323,13 @@ void aggregate_coords(const uint32_t *ids, const size_t n_ids, const uint8_t *al
     }
 }
 
+// pq_dists에 쿼리의 각 청크과 256개의 pq 중심점과의 거리 저장, output = [dist(chunk1, centroid1_1), dist(chunk1, centroid1_2), ...dist(chunk1, centroid1_256),
+// dist(chunk2, centroid2_1), ...dist(chunk2, centroid2_256), ... dist(chunk32, centroid32_256)]
+// diskann::pq_dist_lookup(pq_coord_scratch, n_ids, this->_n_chunks, pq_dists, dists_out)
 void pq_dist_lookup(const uint8_t *pq_ids, const size_t n_pts, const size_t pq_nchunks, const float *pq_dists,
                     float *dists_out)
 {
+    // _MM_HINT_T0 = 3
     _mm_prefetch((char *)dists_out, _MM_HINT_T0);
     _mm_prefetch((char *)pq_ids, _MM_HINT_T0);
     _mm_prefetch((char *)(pq_ids + 64), _MM_HINT_T0);

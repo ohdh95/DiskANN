@@ -761,6 +761,7 @@ int PQFlashIndex<T, LabelT>::load(MemoryMappedFiles &files, uint32_t num_threads
 template <typename T, typename LabelT> int PQFlashIndex<T, LabelT>::load(uint32_t num_threads, const char *index_prefix)
 {
 #endif
+    std::cout << "search_disk_index!!!!!!!!!!!!!!!! " << index_prefix << std::endl;
     std::string pq_table_bin = std::string(index_prefix) + "_pq_pivots.bin";
     std::string pq_compressed_vectors = std::string(index_prefix) + "_pq_compressed.bin";
     std::string _disk_index_file = std::string(index_prefix) + "_disk.index";
@@ -1098,6 +1099,7 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
 
 #ifndef EXEC_ENV_OLS
     // open AlignedFileReader handle to index_file
+    // index 파일 오픈!!!
     std::string index_fname(_disk_index_file);
     reader->open(index_fname);
     this->setup_thread_data(num_threads);
@@ -1278,10 +1280,10 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                            __LINE__);
 
     ScratchStoreManager<SSDThreadData<T>> manager(this->_thread_data);
-    auto data = manager.scratch_space();
+    SSDThreadData<T>* data = manager.scratch_space();
     IOContext &ctx = data->ctx;
-    auto query_scratch = &(data->scratch);
-    auto pq_query_scratch = query_scratch->pq_scratch();
+    SSDQueryScratch<T>* query_scratch = &(data->scratch);
+    PQScratch<T>* pq_query_scratch = query_scratch->pq_scratch();
 
     // reset query scratch
     query_scratch->reset();
@@ -1289,44 +1291,24 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     // copy query to thread specific aligned and allocated memory (for distance
     // calculations we need aligned data)
     float query_norm = 0;
-    T *aligned_query_T = query_scratch->aligned_query_T();
+    T *aligned_query_T = query_scratch->aligned_query_T(); // query1 복사
     float *query_float = pq_query_scratch->aligned_query_float;
     float *query_rotated = pq_query_scratch->rotated_query;
 
     // normalization step. for cosine, we simply normalize the query
     // for mips, we normalize the first d-1 dims, and add a 0 for last dim, since an extra coordinate was used to
     // convert MIPS to L2 search
-    if (metric == diskann::Metric::INNER_PRODUCT || metric == diskann::Metric::COSINE)
+    // _data_dim = 128(data 차원)
+    for (size_t i = 0; i < this->_data_dim; i++)
     {
-        uint64_t inherent_dim = (metric == diskann::Metric::COSINE) ? this->_data_dim : (uint64_t)(this->_data_dim - 1);
-        for (size_t i = 0; i < inherent_dim; i++)
-        {
-            aligned_query_T[i] = query1[i];
-            query_norm += query1[i] * query1[i];
-        }
-        if (metric == diskann::Metric::INNER_PRODUCT)
-            aligned_query_T[this->_data_dim - 1] = 0;
-
-        query_norm = std::sqrt(query_norm);
-
-        for (size_t i = 0; i < inherent_dim; i++)
-        {
-            aligned_query_T[i] = (T)(aligned_query_T[i] / query_norm);
-        }
-        pq_query_scratch->initialize(this->_data_dim, aligned_query_T);
+        aligned_query_T[i] = query1[i];
     }
-    else
-    {
-        for (size_t i = 0; i < this->_data_dim; i++)
-        {
-            aligned_query_T[i] = query1[i];
-        }
-        pq_query_scratch->initialize(this->_data_dim, aligned_query_T);
-    }
+    pq_query_scratch->initialize(this->_data_dim, aligned_query_T); // rotated_query, aligned_query_float에 query 복사
+    
 
     // pointers to buffers for data
     T *data_buf = query_scratch->coord_scratch;
-    _mm_prefetch((char *)data_buf, _MM_HINT_T1);
+    _mm_prefetch((char *)data_buf, _MM_HINT_T1); // _MM_HINT_T1 = 2
 
     // sector scratch
     char *sector_scratch = query_scratch->sector_scratch;
@@ -1335,20 +1317,24 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         _nnodes_per_sector > 0 ? 1 : DIV_ROUND_UP(_max_node_len, defaults::SECTOR_LEN);
 
     // query <-> PQ chunk centers distances
+    // query_rotated랑 centroid랑 거리 차이를 query_rotated에 저장(원래 query_rotated는 그냥 query point 1개)
     _pq_table.preprocess_query(query_rotated); // center the query and rotate if
                                                // we have a rotation matrix
     float *pq_dists = pq_query_scratch->aligned_pqtable_dist_scratch;
+
+    // pq_dists에 각 청크과 256개의 pq 중심점과의 거리 저장, output = [dist(chunk1, centroid1_1), dist(chunk1, centroid1_2), ...dist(chunk1, centroid1_256),
+    // dist(chunk2, centroid2_1), ...dist(chunk2, centroid2_256), ... dist(chunk32, centroid32_256)]
     _pq_table.populate_chunk_distances(query_rotated, pq_dists);
 
     // query <-> neighbor list
-    float *dist_scratch = pq_query_scratch->aligned_dist_scratch;
+    float *dist_scratch = pq_query_scratch->aligned_dist_scratch; // 이웃과의 거리? 같음
     uint8_t *pq_coord_scratch = pq_query_scratch->aligned_pq_coord_scratch;
 
     // lambda to batch compute query<-> node distances in PQ space
     auto compute_dists = [this, pq_coord_scratch, pq_dists](const uint32_t *ids, const uint64_t n_ids,
                                                             float *dists_out) {
-        diskann::aggregate_coords(ids, n_ids, this->data, this->_n_chunks, pq_coord_scratch);
-        diskann::pq_dist_lookup(pq_coord_scratch, n_ids, this->_n_chunks, pq_dists, dists_out);
+        diskann::aggregate_coords(ids, n_ids, this->data, this->_n_chunks, pq_coord_scratch); // id에 해당하는 pq 압축된 벡터(가장 가까운 centorid id dim개) pq_coord_scratch에 저장
+        diskann::pq_dist_lookup(pq_coord_scratch, n_ids, this->_n_chunks, pq_dists, dists_out); // 쿼리와 해당 점들의 거리 계산 결과
     };
     Timer query_timer, io_timer, cpu_timer;
 
@@ -1359,6 +1345,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
 
     uint32_t best_medoid = 0;
     float best_dist = (std::numeric_limits<float>::max)();
+    // _num_medoids = 1
     if (!use_filter)
     {
         for (uint64_t cur_m = 0; cur_m < _num_medoids; cur_m++)
@@ -1372,31 +1359,8 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
             }
         }
     }
-    else
-    {
-        if (_filter_to_medoid_ids.find(filter_label) != _filter_to_medoid_ids.end())
-        {
-            const auto &medoid_ids = _filter_to_medoid_ids[filter_label];
-            for (uint64_t cur_m = 0; cur_m < medoid_ids.size(); cur_m++)
-            {
-                // for filtered index, we dont store global centroid data as for unfiltered index, so we use PQ distance
-                // as approximation to decide closest medoid matching the query filter.
-                compute_dists(&medoid_ids[cur_m], 1, dist_scratch);
-                float cur_expanded_dist = dist_scratch[0];
-                if (cur_expanded_dist < best_dist)
-                {
-                    best_medoid = medoid_ids[cur_m];
-                    best_dist = cur_expanded_dist;
-                }
-            }
-        }
-        else
-        {
-            throw ANNException("Cannot find medoid for specified filter.", -1, __FUNCSIG__, __FILE__, __LINE__);
-        }
-    }
-
-    compute_dists(&best_medoid, 1, dist_scratch);
+    // best_medoid = medoid id
+    compute_dists(&best_medoid, 1, dist_scratch); // dist_scratch[0] = best_medoid와 쿼리 pq 거리
     retset.insert(Neighbor(best_medoid, dist_scratch[0]));
     visited.insert(best_medoid);
 
@@ -1414,6 +1378,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     std::vector<std::pair<uint32_t, std::pair<uint32_t, uint32_t *>>> cached_nhoods;
     cached_nhoods.reserve(2 * beam_width);
 
+    // has_unexpanded_node: 방문하지 않은 노드가 있으면 true
     while (retset.has_unexpanded_node() && num_ios < io_limit)
     {
         // clear iteration state
@@ -1424,42 +1389,54 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         sector_scratch_idx = 0;
         // find new beam
         uint32_t num_seen = 0;
+        std::vector<float> distan;
+
+        // frontier에 가장 가까운 이웃 id beam_width개 push
         while (retset.has_unexpanded_node() && frontier.size() < beam_width && num_seen < beam_width)
         {
-            auto nbr = retset.closest_unexpanded();
+            auto nbr = retset.closest_unexpanded(); // 가장 가까운 이웃, Neighbor(unsigned id, float distance, bool expanded)
             num_seen++;
-            auto iter = _nhood_cache.find(nbr.id);
-            if (iter != _nhood_cache.end())
-            {
-                cached_nhoods.push_back(std::make_pair(nbr.id, iter->second));
-                if (stats != nullptr)
-                {
-                    stats->n_cache_hits++;
-                }
-            }
-            else
-            {
+            // cache할 경우에 필요
+            // auto iter = _nhood_cache.find(nbr.id);
+            // if (iter != _nhood_cache.end())
+            // {
+            //     std::cout << "Cache hit!!!!!!!!!!!!!!!!!" << std::endl;
+            //     cached_nhoods.push_back(std::make_pair(nbr.id, iter->second));
+            //     if (stats != nullptr)
+            //     {
+            //         stats->n_cache_hits++;
+            //     }
+            // }
+            // else
+            // {
                 frontier.push_back(nbr.id);
-            }
+                // distan.push_back(nbr.distance);
+            // }
+            
+            // 몰?루, 근데 일단 안지남
             if (this->_count_visited_nodes)
             {
                 reinterpret_cast<std::atomic<uint32_t> &>(this->_node_visit_counter[nbr.id].second).fetch_add(1);
             }
         }
 
+
         // read nhoods of frontier ids
+        // frontier에 있는 벡터들의 이웃 읽기 요청
         if (!frontier.empty())
         {
             if (stats != nullptr)
                 stats->n_hops++;
-            for (uint64_t i = 0; i < frontier.size(); i++)
+            for (uint64_t i = 0; i < frontier.size(); i++) // frontier에 있는 id들
             {
                 auto id = frontier[i];
                 std::pair<uint32_t, char *> fnhood;
                 fnhood.first = id;
-                fnhood.second = sector_scratch + num_sectors_per_node * sector_scratch_idx * defaults::SECTOR_LEN;
+                fnhood.second = sector_scratch + num_sectors_per_node * sector_scratch_idx * defaults::SECTOR_LEN; // 읽어올 버퍼
                 sector_scratch_idx++;
                 frontier_nhoods.push_back(fnhood);
+                // 읽기 요청 생성
+                // frontier_read_reqs: (uint64_t offset, uint64_t len, void *buf)
                 frontier_read_reqs.emplace_back(get_node_sector((size_t)id) * defaults::SECTOR_LEN,
                                                 num_sectors_per_node * defaults::SECTOR_LEN, fnhood.second);
                 if (stats != nullptr)
@@ -1470,12 +1447,9 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                 num_ios++;
             }
             io_timer.reset();
-#ifdef USE_BING_INFRA
-            reader->read(frontier_read_reqs, ctx,
-                         true); // asynhronous reader for Bing.
-#else
+            // 읽기
             reader->read(frontier_read_reqs, ctx); // synchronous IO linux
-#endif
+
             if (stats != nullptr)
             {
                 stats->io_us += (float)io_timer.elapsed();
@@ -1483,93 +1457,84 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         }
 
         // process cached nhoods
-        for (auto &cached_nhood : cached_nhoods)
-        {
-            auto global_cache_iter = _coord_cache.find(cached_nhood.first);
-            T *node_fp_coords_copy = global_cache_iter->second;
-            float cur_expanded_dist;
-            if (!_use_disk_index_pq)
-            {
-                cur_expanded_dist = _dist_cmp->compare(aligned_query_T, node_fp_coords_copy, (uint32_t)_aligned_dim);
-            }
-            else
-            {
-                if (metric == diskann::Metric::INNER_PRODUCT)
-                    cur_expanded_dist = _disk_pq_table.inner_product(query_float, (uint8_t *)node_fp_coords_copy);
-                else
-                    cur_expanded_dist = _disk_pq_table.l2_distance( // disk_pq does not support OPQ yet
-                        query_float, (uint8_t *)node_fp_coords_copy);
-            }
-            full_retset.push_back(Neighbor((uint32_t)cached_nhood.first, cur_expanded_dist));
+        // cache 할 때 사용
+        // for (auto &cached_nhood : cached_nhoods)
+        // {
+        //     std::cout << "Cache hit!!!!!!!!!!!!!!!!!" << std::endl;
+        //     auto global_cache_iter = _coord_cache.find(cached_nhood.first);
+        //     T *node_fp_coords_copy = global_cache_iter->second;
+        //     float cur_expanded_dist;
+        //     if (!_use_disk_index_pq)
+        //     {
+        //         cur_expanded_dist = _dist_cmp->compare(aligned_query_T, node_fp_coords_copy, (uint32_t)_aligned_dim);
+        //     }
+        //     else
+        //     {
+        //         if (metric == diskann::Metric::INNER_PRODUCT)
+        //             cur_expanded_dist = _disk_pq_table.inner_product(query_float, (uint8_t *)node_fp_coords_copy);
+        //         else
+        //             cur_expanded_dist = _disk_pq_table.l2_distance( // disk_pq does not support OPQ yet
+        //                 query_float, (uint8_t *)node_fp_coords_copy);
+        //     }
+        //     full_retset.push_back(Neighbor((uint32_t)cached_nhood.first, cur_expanded_dist));
 
-            uint64_t nnbrs = cached_nhood.second.first;
-            uint32_t *node_nbrs = cached_nhood.second.second;
+        //     uint64_t nnbrs = cached_nhood.second.first;
+        //     uint32_t *node_nbrs = cached_nhood.second.second;
 
-            // compute node_nbrs <-> query dists in PQ space
-            cpu_timer.reset();
-            compute_dists(node_nbrs, nnbrs, dist_scratch);
-            if (stats != nullptr)
-            {
-                stats->n_cmps += (uint32_t)nnbrs;
-                stats->cpu_us += (float)cpu_timer.elapsed();
-            }
+        //     // compute node_nbrs <-> query dists in PQ space
+        //     cpu_timer.reset();
+        //     compute_dists(node_nbrs, nnbrs, dist_scratch);
+        //     if (stats != nullptr)
+        //     {
+        //         stats->n_cmps += (uint32_t)nnbrs;
+        //         stats->cpu_us += (float)cpu_timer.elapsed();
+        //     }
 
-            // process prefetched nhood
-            for (uint64_t m = 0; m < nnbrs; ++m)
-            {
-                uint32_t id = node_nbrs[m];
-                if (visited.insert(id).second)
-                {
-                    if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end())
-                        continue;
+        //     // process prefetched nhood
+        //     for (uint64_t m = 0; m < nnbrs; ++m)
+        //     {
+        //         uint32_t id = node_nbrs[m];
+        //         if (visited.insert(id).second)
+        //         {
+        //             if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end())
+        //                 continue;
 
-                    if (use_filter && !(point_has_label(id, filter_label)) &&
-                        (!_use_universal_label || !point_has_label(id, _universal_filter_label)))
-                        continue;
-                    cmps++;
-                    float dist = dist_scratch[m];
-                    Neighbor nn(id, dist);
-                    retset.insert(nn);
-                }
-            }
-        }
-#ifdef USE_BING_INFRA
-        // process each frontier nhood - compute distances to unvisited nodes
-        int completedIndex = -1;
-        long requestCount = static_cast<long>(frontier_read_reqs.size());
-        // If we issued read requests and if a read is complete or there are
-        // reads in wait state, then enter the while loop.
-        while (requestCount > 0 && getNextCompletedRequest(reader, ctx, requestCount, completedIndex))
-        {
-            assert(completedIndex >= 0);
-            auto &frontier_nhood = frontier_nhoods[completedIndex];
-            (*ctx.m_pRequestsStatus)[completedIndex] = IOContext::PROCESS_COMPLETE;
-#else
+        //             if (use_filter && !(point_has_label(id, filter_label)) &&
+        //                 (!_use_universal_label || !point_has_label(id, _universal_filter_label)))
+        //                 continue;
+        //             cmps++;
+        //             float dist = dist_scratch[m];
+        //             Neighbor nn(id, dist);
+        //             retset.insert(nn);
+        //         }
+        //     }
+        // }
+
+        // frontier_nhoods에는 frontier의 {id, 읽어온 섹터 버퍼}
         for (auto &frontier_nhood : frontier_nhoods)
         {
-#endif
-            char *node_disk_buf = offset_to_node(frontier_nhood.second, frontier_nhood.first);
-            uint32_t *node_buf = offset_to_node_nhood(node_disk_buf);
-            uint64_t nnbrs = (uint64_t)(*node_buf);
-            T *node_fp_coords = offset_to_node_coords(node_disk_buf);
-            memcpy(data_buf, node_fp_coords, _disk_bytes_per_point);
+            char *node_disk_buf = offset_to_node(frontier_nhood.second, frontier_nhood.first); // node_disk_buf: 읽어온 전체 중 해당 ID 시작 지점
+            uint32_t *node_buf = offset_to_node_nhood(node_disk_buf); // node_buf: 이웃 개수 + 이웃 버퍼(원본 제외)
+            uint64_t nnbrs = (uint64_t)(*node_buf); // nnbrs: 이웃 개수
+            T *node_fp_coords = offset_to_node_coords(node_disk_buf); // node_disk_buf를 T*로 변환
+            memcpy(data_buf, node_fp_coords, _disk_bytes_per_point); // data_buf에 원본 벡터 복사, _disk_bytes_per_point = dim * sizeof(T)
             float cur_expanded_dist;
             if (!_use_disk_index_pq)
             {
-                cur_expanded_dist = _dist_cmp->compare(aligned_query_T, data_buf, (uint32_t)_aligned_dim);
+                cur_expanded_dist = _dist_cmp->compare(aligned_query_T, data_buf, (uint32_t)_aligned_dim); // 쿼리 - frontier 거리
             }
-            else
-            {
-                if (metric == diskann::Metric::INNER_PRODUCT)
-                    cur_expanded_dist = _disk_pq_table.inner_product(query_float, (uint8_t *)data_buf);
-                else
-                    cur_expanded_dist = _disk_pq_table.l2_distance(query_float, (uint8_t *)data_buf);
-            }
+            // else
+            // {
+            //     if (metric == diskann::Metric::INNER_PRODUCT)
+            //         cur_expanded_dist = _disk_pq_table.inner_product(query_float, (uint8_t *)data_buf);
+            //     else
+            //         cur_expanded_dist = _disk_pq_table.l2_distance(query_float, (uint8_t *)data_buf);
+            // }
             full_retset.push_back(Neighbor(frontier_nhood.first, cur_expanded_dist));
-            uint32_t *node_nbrs = (node_buf + 1);
+            uint32_t *node_nbrs = (node_buf + 1); // node_nbrs: 이웃 버퍼 시작 지점
             // compute node_nbrs <-> query dist in PQ space
             cpu_timer.reset();
-            compute_dists(node_nbrs, nnbrs, dist_scratch);
+            compute_dists(node_nbrs, nnbrs, dist_scratch); // 이웃들과 쿼리 거리 계산 결과 dist_scratch에 저장
             if (stats != nullptr)
             {
                 stats->n_cmps += (uint32_t)nnbrs;
@@ -1581,14 +1546,14 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
             for (uint64_t m = 0; m < nnbrs; ++m)
             {
                 uint32_t id = node_nbrs[m];
-                if (visited.insert(id).second)
+                if (visited.insert(id).second) // 방문했는지 체크, 안했으면 visited에 추가하고 if절 실행
                 {
-                    if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end())
+                    if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end()) // 일단 pass
                         continue;
 
-                    if (use_filter && !(point_has_label(id, filter_label)) &&
-                        (!_use_universal_label || !point_has_label(id, _universal_filter_label)))
-                        continue;
+                    // if (use_filter && !(point_has_label(id, filter_label)) &&
+                    //     (!_use_universal_label || !point_has_label(id, _universal_filter_label)))
+                    //     continue;
                     cmps++;
                     float dist = dist_scratch[m];
                     if (stats != nullptr)
@@ -1613,55 +1578,58 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     // re-sort by distance
     std::sort(full_retset.begin(), full_retset.end());
 
-    if (use_reorder_data)
-    {
-        if (!(this->_reorder_data_exists))
-        {
-            throw ANNException("Requested use of reordering data which does "
-                               "not exist in index "
-                               "file",
-                               -1, __FUNCSIG__, __FILE__, __LINE__);
-        }
+//     if (use_reorder_data)
+//     {
+//         std::cout << "ok1" << std::endl;
+//         if (!(this->_reorder_data_exists))
+//         {
+//             std::cout << "ok2" << std::endl;
+//             throw ANNException("Requested use of reordering data which does "
+//                                "not exist in index "
+//                                "file",
+//                                -1, __FUNCSIG__, __FILE__, __LINE__);
+//         }
 
-        std::vector<AlignedRead> vec_read_reqs;
+//         std::vector<AlignedRead> vec_read_reqs;
 
-        if (full_retset.size() > k_search * FULL_PRECISION_REORDER_MULTIPLIER)
-            full_retset.erase(full_retset.begin() + k_search * FULL_PRECISION_REORDER_MULTIPLIER, full_retset.end());
+//         if (full_retset.size() > k_search * FULL_PRECISION_REORDER_MULTIPLIER)
+//             full_retset.erase(full_retset.begin() + k_search * FULL_PRECISION_REORDER_MULTIPLIER, full_retset.end());
 
-        for (size_t i = 0; i < full_retset.size(); ++i)
-        {
-            // MULTISECTORFIX
-            vec_read_reqs.emplace_back(VECTOR_SECTOR_NO(((size_t)full_retset[i].id)) * defaults::SECTOR_LEN,
-                                       defaults::SECTOR_LEN, sector_scratch + i * defaults::SECTOR_LEN);
+//         for (size_t i = 0; i < full_retset.size(); ++i)
+//         {
+//             // MULTISECTORFIX
+            
+//             vec_read_reqs.emplace_back(VECTOR_SECTOR_NO(((size_t)full_retset[i].id)) * defaults::SECTOR_LEN,
+//                                        defaults::SECTOR_LEN, sector_scratch + i * defaults::SECTOR_LEN);
 
-            if (stats != nullptr)
-            {
-                stats->n_4k++;
-                stats->n_ios++;
-            }
-        }
+//             if (stats != nullptr)
+//             {
+//                 stats->n_4k++;
+//                 stats->n_ios++;
+//             }
+//         }
 
-        io_timer.reset();
-#ifdef USE_BING_INFRA
-        reader->read(vec_read_reqs, ctx, true); // async reader windows.
-#else
-        reader->read(vec_read_reqs, ctx); // synchronous IO linux
-#endif
-        if (stats != nullptr)
-        {
-            stats->io_us += io_timer.elapsed();
-        }
+//         io_timer.reset();
+// #ifdef USE_BING_INFRA
+//         reader->read(vec_read_reqs, ctx, true); // async reader windows.
+// #else
+//         reader->read(vec_read_reqs, ctx); // synchronous IO linux
+// #endif
+//         if (stats != nullptr)
+//         {
+//             stats->io_us += io_timer.elapsed();
+//         }
 
-        for (size_t i = 0; i < full_retset.size(); ++i)
-        {
-            auto id = full_retset[i].id;
-            // MULTISECTORFIX
-            auto location = (sector_scratch + i * defaults::SECTOR_LEN) + VECTOR_SECTOR_OFFSET(id);
-            full_retset[i].distance = _dist_cmp->compare(aligned_query_T, (T *)location, (uint32_t)this->_data_dim);
-        }
+//         for (size_t i = 0; i < full_retset.size(); ++i)
+//         {
+//             auto id = full_retset[i].id;
+//             // MULTISECTORFIX
+//             auto location = (sector_scratch + i * defaults::SECTOR_LEN) + VECTOR_SECTOR_OFFSET(id);
+//             full_retset[i].distance = _dist_cmp->compare(aligned_query_T, (T *)location, (uint32_t)this->_data_dim);
+//         }
 
-        std::sort(full_retset.begin(), full_retset.end());
-    }
+//         std::sort(full_retset.begin(), full_retset.end());
+//     }
 
     // copy k_search values
     for (uint64_t i = 0; i < k_search; i++)

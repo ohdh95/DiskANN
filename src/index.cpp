@@ -535,6 +535,8 @@ void Index<T, TagT, LabelT>::load(AlignedFileReader &reader, uint32_t num_thread
 void Index<T, TagT, LabelT>::load(const char *filename, uint32_t num_threads, uint32_t search_l)
 {
 #endif
+    // search_memory_index
+    std::cout << "search_memory_index!!!!!!!!!!!!!!!! " << filename << std::endl;
     std::unique_lock<std::shared_timed_mutex> ul(_update_lock);
     std::unique_lock<std::shared_timed_mutex> cl(_consolidate_lock);
     std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
@@ -558,7 +560,7 @@ void Index<T, TagT, LabelT>::load(const char *filename, uint32_t num_threads, ui
         std::string tags_file = std::string(filename) + ".tags";
         std::string delete_set_file = std::string(filename) + ".del";
         std::string graph_file = std::string(filename);
-        data_file_num_pts = load_data(data_file);
+        data_file_num_pts = load_data(data_file); // .data 파일(원본 벡터 저장) load
         if (file_exists(delete_set_file))
         {
             load_delete_set(delete_set_file);
@@ -567,7 +569,7 @@ void Index<T, TagT, LabelT>::load(const char *filename, uint32_t num_threads, ui
         {
             tags_file_num_pts = load_tags(tags_file);
         }
-        graph_num_pts = load_graph(graph_file, data_file_num_pts);
+        graph_num_pts = load_graph(graph_file, data_file_num_pts); // index 파일(이웃 개수 + 이웃 저장?) load
 #endif
     }
     else
@@ -1944,6 +1946,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::_search(const DataType &qu
 {
     try
     {
+        // diskann::cout << "mem_search!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! " << std::endl;
         auto typed_query = std::any_cast<const T *>(query);
         if (typeid(uint32_t *) == indices.type())
         {

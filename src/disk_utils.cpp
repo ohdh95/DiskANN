@@ -676,8 +676,8 @@ int build_merged_vamana_index(std::string base_file, diskann::Metric compareMetr
             std::remove(mem_labels_to_medoid_file.c_str());
         }
 
-        std::remove(medoids_file.c_str());
-        std::remove(centroids_file.c_str());
+        // std::remove(medoids_file.c_str());
+        // std::remove(centroids_file.c_str());
         return 0;
     }
 
@@ -1363,8 +1363,8 @@ int build_disk_index(const char *dataFilePath, const char *indexFilePath, const 
     }
     if (created_temp_file_for_processed_data)
         std::remove(prepped_base.c_str());
-    std::remove(mem_index_path.c_str());
-    std::remove((mem_index_path + ".data").c_str());
+    // std::remove(mem_index_path.c_str());
+    // std::remove((mem_index_path + ".data").c_str());
     std::remove((mem_index_path + ".tags").c_str());
     if (use_disk_pq)
         std::remove(disk_pq_compressed_vectors_path.c_str());

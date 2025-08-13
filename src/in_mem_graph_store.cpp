@@ -214,6 +214,7 @@ int InMemGraphStore::save_graph(const std::string &index_path_prefix, const size
     out.write((char *)&num_frozen_points, sizeof(size_t));
 
     // Note: num_points = _nd + _num_frozen_points
+    diskann::cerr << "save_graph: " << index_path_prefix << "!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
     for (uint32_t i = 0; i < num_points; i++)
     {
         uint32_t GK = (uint32_t)_graph[i].size();

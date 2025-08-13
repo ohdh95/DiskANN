@@ -135,44 +135,6 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
     uint64_t warmup_num = 0, warmup_dim = 0, warmup_aligned_dim = 0;
     T *warmup = nullptr;
 
-    if (WARMUP)
-    {
-        if (file_exists(warmup_query_file))
-        {
-            diskann::load_aligned_bin<T>(warmup_query_file, warmup, warmup_num, warmup_dim, warmup_aligned_dim);
-        }
-        else
-        {
-            warmup_num = (std::min)((uint32_t)150000, (uint32_t)15000 * num_threads);
-            warmup_dim = query_dim;
-            warmup_aligned_dim = query_aligned_dim;
-            diskann::alloc_aligned(((void **)&warmup), warmup_num * warmup_aligned_dim * sizeof(T), 8 * sizeof(T));
-            std::memset(warmup, 0, warmup_num * warmup_aligned_dim * sizeof(T));
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::uniform_int_distribution<> dis(-128, 127);
-            for (uint32_t i = 0; i < warmup_num; i++)
-            {
-                for (uint32_t d = 0; d < warmup_dim; d++)
-                {
-                    warmup[i * warmup_aligned_dim + d] = (T)dis(gen);
-                }
-            }
-        }
-        diskann::cout << "Warming up index... " << std::flush;
-        std::vector<uint64_t> warmup_result_ids_64(warmup_num, 0);
-        std::vector<float> warmup_result_dists(warmup_num, 0);
-
-#pragma omp parallel for schedule(dynamic, 1)
-        for (int64_t i = 0; i < (int64_t)warmup_num; i++)
-        {
-            _pFlashIndex->cached_beam_search(warmup + (i * warmup_aligned_dim), 1, warmup_L,
-                                             warmup_result_ids_64.data() + (i * 1),
-                                             warmup_result_dists.data() + (i * 1), 4);
-        }
-        diskann::cout << "..done" << std::endl;
-    }
-
     diskann::cout.setf(std::ios_base::fixed, std::ios_base::floatfield);
     diskann::cout.precision(2);
 
@@ -233,22 +195,6 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
                                                  query_result_ids_64.data() + (i * recall_at),
                                                  query_result_dists[test_id].data() + (i * recall_at),
                                                  optimized_beamwidth, use_reorder_data, stats + i);
-            }
-            else
-            {
-                LabelT label_for_search;
-                if (query_filters.size() == 1)
-                { // one label for all queries
-                    label_for_search = _pFlashIndex->get_converted_label(query_filters[0]);
-                }
-                else
-                { // one label for each query
-                    label_for_search = _pFlashIndex->get_converted_label(query_filters[i]);
-                }
-                _pFlashIndex->cached_beam_search(
-                    query + (i * query_aligned_dim), recall_at, L, query_result_ids_64.data() + (i * recall_at),
-                    query_result_dists[test_id].data() + (i * recall_at), optimized_beamwidth, true, label_for_search,
-                    use_reorder_data, stats + i);
             }
         }
         auto e = std::chrono::high_resolution_clock::now();

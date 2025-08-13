@@ -143,7 +143,7 @@ template <typename T> class SSDQueryScratch : public AbstractScratch<T>
   public:
     T *coord_scratch = nullptr; // MUST BE AT LEAST [sizeof(T) * data_dim]
 
-    char *sector_scratch = nullptr; // MUST BE AT LEAST [MAX_N_SECTOR_READS * SECTOR_LEN]
+    char *sector_scratch = nullptr; // MUST BE AT LEAST [MAX_N_SECTOR_READS * SECTOR_LEN] // SECTOR_LEN = 4096
     size_t sector_idx = 0;          // index of next [SECTOR_LEN] scratch to use
 
     tsl::robin_set<size_t> visited;
