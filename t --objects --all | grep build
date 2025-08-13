@@ -1,0 +1,643 @@
+[33mcommit 439dc86d31ff46b0a24d612e0c1db90a3a4a511d[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m)[m
+Author: ohdh95 <ohdh95@gmail.com>
+Date:   Wed Aug 13 19:45:26 2025 +0900
+
+    메모리에 이웃 개수 + 이웃 올리기
+
+ .gitignore                 |   2 [32m+[m[31m-[m
+ include/pq_flash_index.h   |   7 [32m+[m[31m-[m
+ src/disk_utils.cpp         |   2 [32m+[m[31m-[m
+ src/in_mem_graph_store.cpp |   1 [31m-[m
+ src/index.cpp              |   2 [31m-[m
+ src/pq.cpp                 |   1 [31m-[m
+ src/pq_flash_index.cpp     | 141 [32m++++++++++++++++++++[m[31m-----------------[m
+ 7 files changed, 85 insertions(+), 71 deletions(-)
+
+[33mcommit 36d0f4882f484d18d7fb8a5dfcffda89c50002c3[m
+Author: ohdh95 <ohdh95@gmail.com>
+Date:   Wed Aug 13 19:32:33 2025 +0900
+
+    디스크에 원본 + 메모리에 이웃
+
+ build/CMakeCache.txt                          |   521 [31m-[m
+ build/CMakeFiles/3.22.1/CMakeCCompiler.cmake  |    72 [31m-[m
+ .../CMakeFiles/3.22.1/CMakeCXXCompiler.cmake  |    83 [31m-[m
+ .../3.22.1/CMakeDetermineCompilerABI_C.bin    |   Bin [31m15968[m -> [32m0[m bytes
+ .../3.22.1/CMakeDetermineCompilerABI_CXX.bin  |   Bin [31m15992[m -> [32m0[m bytes
+ build/CMakeFiles/3.22.1/CMakeSystem.cmake     |    15 [31m-[m
+ .../3.22.1/CompilerIdC/CMakeCCompilerId.c     |   803 [31m--[m
+ build/CMakeFiles/3.22.1/CompilerIdC/a.out     |   Bin [31m16088[m -> [32m0[m bytes
+ .../CompilerIdCXX/CMakeCXXCompilerId.cpp      |   791 [31m--[m
+ build/CMakeFiles/3.22.1/CompilerIdCXX/a.out   |   Bin [31m16096[m -> [32m0[m bytes
+ .../CMakeDirectoryInformation.cmake           |    16 [31m-[m
+ build/CMakeFiles/CMakeOutput.log              |   835 [31m--[m
+ build/CMakeFiles/CMakeRuleHashes.txt          |     3 [31m-[m
+ .../FindOpenMP/OpenMPCheckVersion.c           |    17 [31m-[m
+ .../FindOpenMP/OpenMPCheckVersion.cpp         |    17 [31m-[m
+ build/CMakeFiles/FindOpenMP/OpenMPTryFlag.c   |    12 [31m-[m
+ build/CMakeFiles/FindOpenMP/OpenMPTryFlag.cpp |    12 [31m-[m
+ build/CMakeFiles/FindOpenMP/ompver_C.bin      |   Bin [31m16240[m -> [32m0[m bytes
+ build/CMakeFiles/FindOpenMP/ompver_CXX.bin    |   Bin [31m16248[m -> [32m0[m bytes
+ build/CMakeFiles/Makefile.cmake               |   183 [31m-[m
+ build/CMakeFiles/Makefile2                    |  1165 [31m--[m
+ build/CMakeFiles/TargetDirectories.txt        |    61 [31m-[m
+ .../checkformat.dir/DependInfo.cmake          |    18 [31m-[m
+ build/CMakeFiles/checkformat.dir/build.make   |    87 [31m-[m
+ .../checkformat.dir/cmake_clean.cmake         |     8 [31m-[m
+ .../checkformat.dir/compiler_depend.make      |     2 [31m-[m
+ .../checkformat.dir/compiler_depend.ts        |     2 [31m-[m
+ .../CMakeFiles/checkformat.dir/progress.make  |     1 [31m-[m
+ build/CMakeFiles/cmake.check_cache            |     1 [31m-[m
+ build/CMakeFiles/format.dir/DependInfo.cmake  |    18 [31m-[m
+ build/CMakeFiles/format.dir/build.make        |    87 [31m-[m
+ build/CMakeFiles/format.dir/cmake_clean.cmake |     8 [31m-[m
+ .../format.dir/compiler_depend.make           |     2 [31m-[m
+ .../CMakeFiles/format.dir/compiler_depend.ts  |     2 [31m-[m
+ build/CMakeFiles/format.dir/progress.make     |     1 [31m-[m
+ build/CMakeFiles/progress.marks               |     1 [31m-[m
+ build/Makefile                                |   707 [31m-[m
+ build/R32_L64_B0_03_M1_disk.index             |   Bin [31m682672128[m -> [32m0[m bytes
+ build/R32_L64_B0_03_M1_mem.index              |   Bin [31m132000072[m -> [32m0[m bytes
+ build/R32_L64_B0_03_M1_mem.index.data         |   Bin [31m512000000[m -> [32m0[m bytes
+ build/R32_L64_B0_03_M1_mem.index2             |   Bin [31m132000024[m -> [32m0[m bytes
+ build/R32_L64_B0_03_M1_pq_compressed.bin      |   Bin [31m32000008[m -> [32m0[m bytes
+ build/R32_L64_B0_03_M1_pq_pivots.bin          |   Bin [31m135836[m -> [32m0[m bytes
+ build/R32_L64_B0_03_M1_sample_data.bin        |   Bin [31m51160584[m -> [32m0[m bytes
+ build/R32_L64_B0_03_M1_sample_ids.bin         |   Bin [31m399700[m -> [32m0[m bytes
+ .../CMakeDirectoryInformation.cmake           |    16 [31m-[m
+ .../build_disk_index.dir/DependInfo.cmake     |    20 [31m-[m
+ .../build_disk_index.dir/build.make           |   112 [31m-[m
+ .../build_disk_index.cpp.o                    |   Bin [31m672864[m -> [32m0[m bytes
+ .../build_disk_index.cpp.o.d                  |   931 [31m--[m
+ .../build_disk_index.dir/cmake_clean.cmake    |    11 [31m-[m
+ .../compiler_depend.internal                  |  1010 [31m--[m
+ .../build_disk_index.dir/compiler_depend.make |  3019 [31m-----[m
+ .../build_disk_index.dir/compiler_depend.ts   |     2 [31m-[m
+ .../build_disk_index.dir/depend.make          |     2 [31m-[m
+ .../build_disk_index.dir/flags.make           |    10 [31m-[m
+ .../CMakeFiles/build_disk_index.dir/link.txt  |     1 [31m-[m
+ .../build_disk_index.dir/progress.make        |     3 [31m-[m
+ .../build_memory_index.dir/DependInfo.cmake   |    20 [31m-[m
+ .../build_memory_index.dir/build.make         |   112 [31m-[m
+ .../build_memory_index.cpp.o                  |   Bin [31m785432[m -> [32m0[m bytes
+ .../build_memory_index.cpp.o.d                |   935 [31m--[m
+ .../build_memory_index.dir/cmake_clean.cmake  |    11 [31m-[m
+ .../compiler_depend.internal                  |  1012 [31m--[m
+ .../compiler_depend.make                      |  3025 [31m-----[m
+ .../build_memory_index.dir/compiler_depend.ts |     2 [31m-[m
+ .../build_memory_index.dir/depend.make        |     2 [31m-[m
+ .../build_memory_index.dir/flags.make         |    10 [31m-[m
+ .../build_memory_index.dir/link.txt           |     1 [31m-[m
+ .../build_memory_index.dir/progress.make      |     3 [31m-[m
+ .../build_stitched_index.dir/DependInfo.cmake |    20 [31m-[m
+ .../build_stitched_index.dir/build.make       |   112 [31m-[m
+ .../build_stitched_index.cpp.o                |   Bin [31m1626536[m -> [32m0[m bytes
+ .../build_stitched_index.cpp.o.d              |   938 [31m--[m
+ .../cmake_clean.cmake                         |    11 [31m-[m
+ .../compiler_depend.internal                  |  1016 [31m--[m
+ .../compiler_depend.make                      |  3033 [31m-----[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../build_stitched_index.dir/depend.make      |     2 [31m-[m
+ .../build_stitched_index.dir/flags.make       |    10 [31m-[m
+ .../build_stitched_index.dir/link.txt         |     1 [31m-[m
+ .../build_stitched_index.dir/progress.make    |     3 [31m-[m
+ build/apps/CMakeFiles/progress.marks          |     1 [31m-[m
+ .../DependInfo.cmake                          |    20 [31m-[m
+ .../range_search_disk_index.dir/build.make    |   112 [31m-[m
+ .../cmake_clean.cmake                         |    11 [31m-[m
+ .../compiler_depend.internal                  |  1020 [31m--[m
+ .../compiler_depend.make                      |  3049 [31m-----[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../range_search_disk_index.dir/depend.make   |     2 [31m-[m
+ .../range_search_disk_index.dir/flags.make    |    10 [31m-[m
+ .../range_search_disk_index.dir/link.txt      |     1 [31m-[m
+ .../range_search_disk_index.dir/progress.make |     3 [31m-[m
+ .../range_search_disk_index.cpp.o             |   Bin [31m1328208[m -> [32m0[m bytes
+ .../range_search_disk_index.cpp.o.d           |   939 [31m--[m
+ .../search_disk_index.dir/DependInfo.cmake    |    20 [31m-[m
+ .../search_disk_index.dir/build.make          |   112 [31m-[m
+ .../search_disk_index.dir/cmake_clean.cmake   |    11 [31m-[m
+ .../compiler_depend.internal                  |  1020 [31m--[m
+ .../compiler_depend.make                      |  3049 [31m-----[m
+ .../search_disk_index.dir/compiler_depend.ts  |     2 [31m-[m
+ .../search_disk_index.dir/depend.make         |     2 [31m-[m
+ .../search_disk_index.dir/flags.make          |    10 [31m-[m
+ .../CMakeFiles/search_disk_index.dir/link.txt |     1 [31m-[m
+ .../search_disk_index.dir/progress.make       |     3 [31m-[m
+ .../search_disk_index.cpp.o                   |   Bin [31m1902488[m -> [32m0[m bytes
+ .../search_disk_index.cpp.o.d                 |   933 [31m--[m
+ .../search_memory_index.dir/DependInfo.cmake  |    20 [31m-[m
+ .../search_memory_index.dir/build.make        |   112 [31m-[m
+ .../search_memory_index.dir/cmake_clean.cmake |    11 [31m-[m
+ .../compiler_depend.internal                  |  1012 [31m--[m
+ .../compiler_depend.make                      |  3025 [31m-----[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../search_memory_index.dir/depend.make       |     2 [31m-[m
+ .../search_memory_index.dir/flags.make        |    10 [31m-[m
+ .../search_memory_index.dir/link.txt          |     1 [31m-[m
+ .../search_memory_index.dir/progress.make     |     3 [31m-[m
+ .../search_memory_index.cpp.o                 |   Bin [31m1251952[m -> [32m0[m bytes
+ .../search_memory_index.cpp.o.d               |   930 [31m--[m
+ .../DependInfo.cmake                          |    20 [31m-[m
+ .../build.make                                |   112 [31m-[m
+ .../cmake_clean.cmake                         |    11 [31m-[m
+ .../compiler_depend.internal                  |  1020 [31m--[m
+ .../compiler_depend.make                      |  3045 [31m-----[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../depend.make                               |     2 [31m-[m
+ .../flags.make                                |    10 [31m-[m
+ .../link.txt                                  |     1 [31m-[m
+ .../progress.make                             |     3 [31m-[m
+ .../test_insert_deletes_consolidate.cpp.o     |   Bin [31m2774464[m -> [32m0[m bytes
+ .../test_insert_deletes_consolidate.cpp.o.d   |   932 [31m--[m
+ .../DependInfo.cmake                          |    20 [31m-[m
+ .../test_streaming_scenario.dir/build.make    |   112 [31m-[m
+ .../cmake_clean.cmake                         |    11 [31m-[m
+ .../compiler_depend.internal                  |  1020 [31m--[m
+ .../compiler_depend.make                      |  3045 [31m-----[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../test_streaming_scenario.dir/depend.make   |     2 [31m-[m
+ .../test_streaming_scenario.dir/flags.make    |    10 [31m-[m
+ .../test_streaming_scenario.dir/link.txt      |     1 [31m-[m
+ .../test_streaming_scenario.dir/progress.make |     3 [31m-[m
+ .../test_streaming_scenario.cpp.o             |   Bin [31m5512416[m -> [32m0[m bytes
+ .../test_streaming_scenario.cpp.o.d           |   932 [31m--[m
+ build/apps/Makefile                           |   525 [31m-[m
+ build/apps/build_disk_index                   |   Bin [31m8343096[m -> [32m0[m bytes
+ build/apps/build_memory_index                 |   Bin [31m7186816[m -> [32m0[m bytes
+ build/apps/build_stitched_index               |   Bin [31m7627208[m -> [32m0[m bytes
+ build/apps/cmake_install.cmake                |   204 [31m-[m
+ build/apps/index_sift_base_R32_L64_A1.2       |   Bin [31m115294600[m -> [32m0[m bytes
+ build/apps/index_sift_base_R32_L64_A1.2.data  |   Bin [31m512000008[m -> [32m0[m bytes
+ build/apps/range_search_disk_index            |   Bin [31m8612264[m -> [32m0[m bytes
+ build/apps/search_disk_index                  |   Bin [31m8850272[m -> [32m0[m bytes
+ build/apps/search_memory_index                |   Bin [31m7393088[m -> [32m0[m bytes
+ build/apps/test_insert_deletes_consolidate    |   Bin [31m8369968[m -> [32m0[m bytes
+ build/apps/test_streaming_scenario            |   Bin [31m9506240[m -> [32m0[m bytes
+ .../CMakeDirectoryInformation.cmake           |    16 [31m-[m
+ .../bin_to_tsv.dir/DependInfo.cmake           |    19 [31m-[m
+ .../bin_to_tsv.dir/bin_to_tsv.cpp.o           |   Bin [31m33928[m -> [32m0[m bytes
+ .../bin_to_tsv.dir/bin_to_tsv.cpp.o.d         |   288 [31m-[m
+ .../CMakeFiles/bin_to_tsv.dir/build.make      |   110 [31m-[m
+ .../bin_to_tsv.dir/cmake_clean.cmake          |    11 [31m-[m
+ .../bin_to_tsv.dir/compiler_depend.internal   |   366 [31m-[m
+ .../bin_to_tsv.dir/compiler_depend.make       |  1087 [31m--[m
+ .../bin_to_tsv.dir/compiler_depend.ts         |     2 [31m-[m
+ .../CMakeFiles/bin_to_tsv.dir/depend.make     |     2 [31m-[m
+ .../CMakeFiles/bin_to_tsv.dir/flags.make      |    10 [31m-[m
+ .../utils/CMakeFiles/bin_to_tsv.dir/link.txt  |     1 [31m-[m
+ .../CMakeFiles/bin_to_tsv.dir/progress.make   |     3 [31m-[m
+ .../calculate_recall.dir/DependInfo.cmake     |    20 [31m-[m
+ .../calculate_recall.dir/build.make           |   111 [31m-[m
+ .../calculate_recall.cpp.o                    |   Bin [31m48136[m -> [32m0[m bytes
+ .../calculate_recall.cpp.o.d                  |   288 [31m-[m
+ .../calculate_recall.dir/cmake_clean.cmake    |    11 [31m-[m
+ .../compiler_depend.internal                  |   367 [31m-[m
+ .../calculate_recall.dir/compiler_depend.make |  1090 [31m--[m
+ .../calculate_recall.dir/compiler_depend.ts   |     2 [31m-[m
+ .../calculate_recall.dir/depend.make          |     2 [31m-[m
+ .../calculate_recall.dir/flags.make           |    10 [31m-[m
+ .../CMakeFiles/calculate_recall.dir/link.txt  |     1 [31m-[m
+ .../calculate_recall.dir/progress.make        |     3 [31m-[m
+ .../compute_groundtruth.dir/DependInfo.cmake  |    20 [31m-[m
+ .../compute_groundtruth.dir/build.make        |   112 [31m-[m
+ .../compute_groundtruth.dir/cmake_clean.cmake |    11 [31m-[m
+ .../compiler_depend.internal                  |   915 [31m--[m
+ .../compiler_depend.make                      |  2732 [31m----[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../compute_groundtruth.cpp.o                 |   Bin [31m796192[m -> [32m0[m bytes
+ .../compute_groundtruth.cpp.o.d               |   824 [31m--[m
+ .../compute_groundtruth.dir/depend.make       |     2 [31m-[m
+ .../compute_groundtruth.dir/flags.make        |    10 [31m-[m
+ .../compute_groundtruth.dir/link.txt          |     1 [31m-[m
+ .../compute_groundtruth.dir/progress.make     |     3 [31m-[m
+ .../DependInfo.cmake                          |    20 [31m-[m
+ .../build.make                                |   112 [31m-[m
+ .../cmake_clean.cmake                         |    11 [31m-[m
+ .../compiler_depend.internal                  |   915 [31m--[m
+ .../compiler_depend.make                      |  2732 [31m----[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../compute_groundtruth_for_filters.cpp.o     |   Bin [31m1685936[m -> [32m0[m bytes
+ .../compute_groundtruth_for_filters.cpp.o.d   |   824 [31m--[m
+ .../depend.make                               |     2 [31m-[m
+ .../flags.make                                |    10 [31m-[m
+ .../link.txt                                  |     1 [31m-[m
+ .../progress.make                             |     3 [31m-[m
+ .../count_bfs_levels.dir/DependInfo.cmake     |    20 [31m-[m
+ .../count_bfs_levels.dir/build.make           |   112 [31m-[m
+ .../count_bfs_levels.dir/cmake_clean.cmake    |    11 [31m-[m
+ .../compiler_depend.internal                  |  1010 [31m--[m
+ .../count_bfs_levels.dir/compiler_depend.make |  3019 [31m-----[m
+ .../count_bfs_levels.dir/compiler_depend.ts   |     2 [31m-[m
+ .../count_bfs_levels.cpp.o                    |   Bin [31m540968[m -> [32m0[m bytes
+ .../count_bfs_levels.cpp.o.d                  |   928 [31m--[m
+ .../count_bfs_levels.dir/depend.make          |     2 [31m-[m
+ .../count_bfs_levels.dir/flags.make           |    10 [31m-[m
+ .../CMakeFiles/count_bfs_levels.dir/link.txt  |     1 [31m-[m
+ .../count_bfs_levels.dir/progress.make        |     3 [31m-[m
+ .../create_disk_layout.dir/DependInfo.cmake   |    20 [31m-[m
+ .../create_disk_layout.dir/build.make         |   111 [31m-[m
+ .../create_disk_layout.dir/cmake_clean.cmake  |    11 [31m-[m
+ .../compiler_depend.internal                  |   367 [31m-[m
+ .../compiler_depend.make                      |  1090 [31m--[m
+ .../create_disk_layout.dir/compiler_depend.ts |     2 [31m-[m
+ .../create_disk_layout.cpp.o                  |   Bin [31m34616[m -> [32m0[m bytes
+ .../create_disk_layout.cpp.o.d                |   289 [31m-[m
+ .../create_disk_layout.dir/depend.make        |     2 [31m-[m
+ .../create_disk_layout.dir/flags.make         |    10 [31m-[m
+ .../create_disk_layout.dir/link.txt           |     1 [31m-[m
+ .../create_disk_layout.dir/progress.make      |     3 [31m-[m
+ .../float_bin_to_int8.dir/DependInfo.cmake    |    19 [31m-[m
+ .../float_bin_to_int8.dir/build.make          |   110 [31m-[m
+ .../float_bin_to_int8.dir/cmake_clean.cmake   |    11 [31m-[m
+ .../compiler_depend.internal                  |   366 [31m-[m
+ .../compiler_depend.make                      |  1087 [31m--[m
+ .../float_bin_to_int8.dir/compiler_depend.ts  |     2 [31m-[m
+ .../float_bin_to_int8.dir/depend.make         |     2 [31m-[m
+ .../float_bin_to_int8.dir/flags.make          |    10 [31m-[m
+ .../float_bin_to_int8.cpp.o                   |   Bin [31m19080[m -> [32m0[m bytes
+ .../float_bin_to_int8.cpp.o.d                 |   288 [31m-[m
+ .../CMakeFiles/float_bin_to_int8.dir/link.txt |     1 [31m-[m
+ .../float_bin_to_int8.dir/progress.make       |     3 [31m-[m
+ .../fvecs_to_bin.dir/DependInfo.cmake         |    19 [31m-[m
+ .../CMakeFiles/fvecs_to_bin.dir/build.make    |   110 [31m-[m
+ .../fvecs_to_bin.dir/cmake_clean.cmake        |    11 [31m-[m
+ .../fvecs_to_bin.dir/compiler_depend.internal |   366 [31m-[m
+ .../fvecs_to_bin.dir/compiler_depend.make     |  1087 [31m--[m
+ .../fvecs_to_bin.dir/compiler_depend.ts       |     2 [31m-[m
+ .../CMakeFiles/fvecs_to_bin.dir/depend.make   |     2 [31m-[m
+ .../CMakeFiles/fvecs_to_bin.dir/flags.make    |    10 [31m-[m
+ .../fvecs_to_bin.dir/fvecs_to_bin.cpp.o       |   Bin [31m21080[m -> [32m0[m bytes
+ .../fvecs_to_bin.dir/fvecs_to_bin.cpp.o.d     |   288 [31m-[m
+ .../CMakeFiles/fvecs_to_bin.dir/link.txt      |     1 [31m-[m
+ .../CMakeFiles/fvecs_to_bin.dir/progress.make |     3 [31m-[m
+ .../fvecs_to_bvecs.dir/DependInfo.cmake       |    19 [31m-[m
+ .../CMakeFiles/fvecs_to_bvecs.dir/build.make  |   110 [31m-[m
+ .../fvecs_to_bvecs.dir/cmake_clean.cmake      |    11 [31m-[m
+ .../compiler_depend.internal                  |   366 [31m-[m
+ .../fvecs_to_bvecs.dir/compiler_depend.make   |  1087 [31m--[m
+ .../fvecs_to_bvecs.dir/compiler_depend.ts     |     2 [31m-[m
+ .../CMakeFiles/fvecs_to_bvecs.dir/depend.make |     2 [31m-[m
+ .../CMakeFiles/fvecs_to_bvecs.dir/flags.make  |    10 [31m-[m
+ .../fvecs_to_bvecs.dir/fvecs_to_bvecs.cpp.o   |   Bin [31m19920[m -> [32m0[m bytes
+ .../fvecs_to_bvecs.dir/fvecs_to_bvecs.cpp.o.d |   288 [31m-[m
+ .../CMakeFiles/fvecs_to_bvecs.dir/link.txt    |     1 [31m-[m
+ .../fvecs_to_bvecs.dir/progress.make          |     3 [31m-[m
+ .../gen_random_slice.dir/DependInfo.cmake     |    20 [31m-[m
+ .../gen_random_slice.dir/build.make           |   111 [31m-[m
+ .../gen_random_slice.dir/cmake_clean.cmake    |    11 [31m-[m
+ .../compiler_depend.internal                  |   377 [31m-[m
+ .../gen_random_slice.dir/compiler_depend.make |  1120 [31m--[m
+ .../gen_random_slice.dir/compiler_depend.ts   |     2 [31m-[m
+ .../gen_random_slice.dir/depend.make          |     2 [31m-[m
+ .../gen_random_slice.dir/flags.make           |    10 [31m-[m
+ .../gen_random_slice.cpp.o                    |   Bin [31m33120[m -> [32m0[m bytes
+ .../gen_random_slice.cpp.o.d                  |   294 [31m-[m
+ .../CMakeFiles/gen_random_slice.dir/link.txt  |     1 [31m-[m
+ .../gen_random_slice.dir/progress.make        |     3 [31m-[m
+ .../generate_pq.dir/DependInfo.cmake          |    20 [31m-[m
+ .../CMakeFiles/generate_pq.dir/build.make     |   111 [31m-[m
+ .../generate_pq.dir/cmake_clean.cmake         |    11 [31m-[m
+ .../generate_pq.dir/compiler_depend.internal  |   377 [31m-[m
+ .../generate_pq.dir/compiler_depend.make      |  1120 [31m--[m
+ .../generate_pq.dir/compiler_depend.ts        |     2 [31m-[m
+ .../CMakeFiles/generate_pq.dir/depend.make    |     2 [31m-[m
+ .../CMakeFiles/generate_pq.dir/flags.make     |    10 [31m-[m
+ .../generate_pq.dir/generate_pq.cpp.o         |   Bin [31m37472[m -> [32m0[m bytes
+ .../generate_pq.dir/generate_pq.cpp.o.d       |   293 [31m-[m
+ .../utils/CMakeFiles/generate_pq.dir/link.txt |     1 [31m-[m
+ .../CMakeFiles/generate_pq.dir/progress.make  |     3 [31m-[m
+ .../DependInfo.cmake                          |    20 [31m-[m
+ .../generate_synthetic_labels.dir/build.make  |   112 [31m-[m
+ .../cmake_clean.cmake                         |    11 [31m-[m
+ .../compiler_depend.internal                  |   871 [31m--[m
+ .../compiler_depend.make                      |  2602 [31m----[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../generate_synthetic_labels.dir/depend.make |     2 [31m-[m
+ .../generate_synthetic_labels.dir/flags.make  |    10 [31m-[m
+ .../generate_synthetic_labels.cpp.o           |   Bin [31m686400[m -> [32m0[m bytes
+ .../generate_synthetic_labels.cpp.o.d         |   794 [31m--[m
+ .../generate_synthetic_labels.dir/link.txt    |     1 [31m-[m
+ .../progress.make                             |     3 [31m-[m
+ .../int8_to_float.dir/DependInfo.cmake        |    20 [31m-[m
+ .../CMakeFiles/int8_to_float.dir/build.make   |   111 [31m-[m
+ .../int8_to_float.dir/cmake_clean.cmake       |    11 [31m-[m
+ .../compiler_depend.internal                  |   366 [31m-[m
+ .../int8_to_float.dir/compiler_depend.make    |  1087 [31m--[m
+ .../int8_to_float.dir/compiler_depend.ts      |     2 [31m-[m
+ .../CMakeFiles/int8_to_float.dir/depend.make  |     2 [31m-[m
+ .../CMakeFiles/int8_to_float.dir/flags.make   |    10 [31m-[m
+ .../int8_to_float.dir/int8_to_float.cpp.o     |   Bin [31m46776[m -> [32m0[m bytes
+ .../int8_to_float.dir/int8_to_float.cpp.o.d   |   288 [31m-[m
+ .../CMakeFiles/int8_to_float.dir/link.txt     |     1 [31m-[m
+ .../int8_to_float.dir/progress.make           |     3 [31m-[m
+ .../int8_to_float_scale.dir/DependInfo.cmake  |    20 [31m-[m
+ .../int8_to_float_scale.dir/build.make        |   111 [31m-[m
+ .../int8_to_float_scale.dir/cmake_clean.cmake |    11 [31m-[m
+ .../compiler_depend.internal                  |   366 [31m-[m
+ .../compiler_depend.make                      |  1087 [31m--[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../int8_to_float_scale.dir/depend.make       |     2 [31m-[m
+ .../int8_to_float_scale.dir/flags.make        |    10 [31m-[m
+ .../int8_to_float_scale.cpp.o                 |   Bin [31m19024[m -> [32m0[m bytes
+ .../int8_to_float_scale.cpp.o.d               |   288 [31m-[m
+ .../int8_to_float_scale.dir/link.txt          |     1 [31m-[m
+ .../int8_to_float_scale.dir/progress.make     |     3 [31m-[m
+ .../ivecs_to_bin.dir/DependInfo.cmake         |    19 [31m-[m
+ .../CMakeFiles/ivecs_to_bin.dir/build.make    |   110 [31m-[m
+ .../ivecs_to_bin.dir/cmake_clean.cmake        |    11 [31m-[m
+ .../ivecs_to_bin.dir/compiler_depend.internal |   366 [31m-[m
+ .../ivecs_to_bin.dir/compiler_depend.make     |  1087 [31m--[m
+ .../ivecs_to_bin.dir/compiler_depend.ts       |     2 [31m-[m
+ .../CMakeFiles/ivecs_to_bin.dir/depend.make   |     2 [31m-[m
+ .../CMakeFiles/ivecs_to_bin.dir/flags.make    |    10 [31m-[m
+ .../ivecs_to_bin.dir/ivecs_to_bin.cpp.o       |   Bin [31m20048[m -> [32m0[m bytes
+ .../ivecs_to_bin.dir/ivecs_to_bin.cpp.o.d     |   288 [31m-[m
+ .../CMakeFiles/ivecs_to_bin.dir/link.txt      |     1 [31m-[m
+ .../CMakeFiles/ivecs_to_bin.dir/progress.make |     3 [31m-[m
+ .../merge_shards.dir/DependInfo.cmake         |    20 [31m-[m
+ .../CMakeFiles/merge_shards.dir/build.make    |   111 [31m-[m
+ .../merge_shards.dir/cmake_clean.cmake        |    11 [31m-[m
+ .../merge_shards.dir/compiler_depend.internal |   367 [31m-[m
+ .../merge_shards.dir/compiler_depend.make     |  1090 [31m--[m
+ .../merge_shards.dir/compiler_depend.ts       |     2 [31m-[m
+ .../CMakeFiles/merge_shards.dir/depend.make   |     2 [31m-[m
+ .../CMakeFiles/merge_shards.dir/flags.make    |    10 [31m-[m
+ .../CMakeFiles/merge_shards.dir/link.txt      |     1 [31m-[m
+ .../merge_shards.dir/merge_shards.cpp.o       |   Bin [31m25952[m -> [32m0[m bytes
+ .../merge_shards.dir/merge_shards.cpp.o.d     |   291 [31m-[m
+ .../CMakeFiles/merge_shards.dir/progress.make |     3 [31m-[m
+ .../partition_data.dir/DependInfo.cmake       |    20 [31m-[m
+ .../CMakeFiles/partition_data.dir/build.make  |   111 [31m-[m
+ .../partition_data.dir/cmake_clean.cmake      |    11 [31m-[m
+ .../compiler_depend.internal                  |   559 [31m-[m
+ .../partition_data.dir/compiler_depend.make   |  1666 [31m---[m
+ .../partition_data.dir/compiler_depend.ts     |     2 [31m-[m
+ .../CMakeFiles/partition_data.dir/depend.make |     2 [31m-[m
+ .../CMakeFiles/partition_data.dir/flags.make  |    10 [31m-[m
+ .../CMakeFiles/partition_data.dir/link.txt    |     1 [31m-[m
+ .../partition_data.dir/partition_data.cpp.o   |   Bin [31m30776[m -> [32m0[m bytes
+ .../partition_data.dir/partition_data.cpp.o.d |   472 [31m-[m
+ .../partition_data.dir/progress.make          |     3 [31m-[m
+ .../DependInfo.cmake                          |    20 [31m-[m
+ .../partition_with_ram_budget.dir/build.make  |   111 [31m-[m
+ .../cmake_clean.cmake                         |    11 [31m-[m
+ .../compiler_depend.internal                  |   559 [31m-[m
+ .../compiler_depend.make                      |  1666 [31m---[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../partition_with_ram_budget.dir/depend.make |     2 [31m-[m
+ .../partition_with_ram_budget.dir/flags.make  |    10 [31m-[m
+ .../partition_with_ram_budget.dir/link.txt    |     1 [31m-[m
+ .../partition_with_ram_budget.cpp.o           |   Bin [31m30928[m -> [32m0[m bytes
+ .../partition_with_ram_budget.cpp.o.d         |   472 [31m-[m
+ .../progress.make                             |     3 [31m-[m
+ build/apps/utils/CMakeFiles/progress.marks    |     1 [31m-[m
+ .../rand_data_gen.dir/DependInfo.cmake        |    20 [31m-[m
+ .../CMakeFiles/rand_data_gen.dir/build.make   |   112 [31m-[m
+ .../rand_data_gen.dir/cmake_clean.cmake       |    11 [31m-[m
+ .../compiler_depend.internal                  |   870 [31m--[m
+ .../rand_data_gen.dir/compiler_depend.make    |  2599 [31m----[m
+ .../rand_data_gen.dir/compiler_depend.ts      |     2 [31m-[m
+ .../CMakeFiles/rand_data_gen.dir/depend.make  |     2 [31m-[m
+ .../CMakeFiles/rand_data_gen.dir/flags.make   |    10 [31m-[m
+ .../CMakeFiles/rand_data_gen.dir/link.txt     |     1 [31m-[m
+ .../rand_data_gen.dir/progress.make           |     3 [31m-[m
+ .../rand_data_gen.dir/rand_data_gen.cpp.o     |   Bin [31m639200[m -> [32m0[m bytes
+ .../rand_data_gen.dir/rand_data_gen.cpp.o.d   |   794 [31m--[m
+ .../DependInfo.cmake                          |    19 [31m-[m
+ .../simulate_aggregate_recall.dir/build.make  |   110 [31m-[m
+ .../cmake_clean.cmake                         |    11 [31m-[m
+ .../compiler_depend.internal                  |   232 [31m-[m
+ .../compiler_depend.make                      |   685 [31m-[m
+ .../compiler_depend.ts                        |     2 [31m-[m
+ .../simulate_aggregate_recall.dir/depend.make |     2 [31m-[m
+ .../simulate_aggregate_recall.dir/flags.make  |    10 [31m-[m
+ .../simulate_aggregate_recall.dir/link.txt    |     1 [31m-[m
+ .../progress.make                             |     3 [31m-[m
+ .../simulate_aggregate_recall.cpp.o           |   Bin [31m52496[m -> [32m0[m bytes
+ .../simulate_aggregate_recall.cpp.o.d         |   189 [31m-[m
+ .../stats_label_data.dir/DependInfo.cmake     |    20 [31m-[m
+ .../stats_label_data.dir/build.make           |   112 [31m-[m
+ .../stats_label_data.dir/cmake_clean.cmake    |    11 [31m-[m
+ .../compiler_depend.internal                  |   875 [31m--[m
+ .../stats_label_data.dir/compiler_depend.make |  2614 [31m----[m
+ .../stats_label_data.dir/compiler_depend.ts   |     2 [31m-[m
+ .../stats_label_data.dir/depend.make          |     2 [31m-[m
+ .../stats_label_data.dir/flags.make           |    10 [31m-[m
+ .../CMakeFiles/stats_label_data.dir/link.txt  |     1 [31m-[m
+ .../stats_label_data.dir/progress.make        |     3 [31m-[m
+ .../stats_label_data.cpp.o                    |   Bin [31m777240[m -> [32m0[m bytes
+ .../stats_label_data.cpp.o.d                  |   800 [31m--[m
+ .../tsv_to_bin.dir/DependInfo.cmake           |    19 [31m-[m
+ .../CMakeFiles/tsv_to_bin.dir/build.make      |   110 [31m-[m
+ .../tsv_to_bin.dir/cmake_clean.cmake          |    11 [31m-[m
+ .../tsv_to_bin.dir/compiler_depend.internal   |   366 [31m-[m
+ .../tsv_to_bin.dir/compiler_depend.make       |  1087 [31m--[m
+ .../tsv_to_bin.dir/compiler_depend.ts         |     2 [31m-[m
+ .../CMakeFiles/tsv_to_bin.dir/depend.make     |     2 [31m-[m
+ .../CMakeFiles/tsv_to_bin.dir/flags.make      |    10 [31m-[m
+ .../utils/CMakeFiles/tsv_to_bin.dir/link.txt  |     1 [31m-[m
+ .../CMakeFiles/tsv_to_bin.dir/progress.make   |     3 [31m-[m
+ .../tsv_to_bin.dir/tsv_to_bin.cpp.o           |   Bin [31m34696[m -> [32m0[m bytes
+ .../tsv_to_bin.dir/tsv_to_bin.cpp.o.d         |   288 [31m-[m
+ .../uint32_to_uint8.dir/DependInfo.cmake      |    20 [31m-[m
+ .../CMakeFiles/uint32_to_uint8.dir/build.make |   111 [31m-[m
+ .../uint32_to_uint8.dir/cmake_clean.cmake     |    11 [31m-[m
+ .../compiler_depend.internal                  |   366 [31m-[m
+ .../uint32_to_uint8.dir/compiler_depend.make  |  1087 [31m--[m
+ .../uint32_to_uint8.dir/compiler_depend.ts    |     2 [31m-[m
+ .../uint32_to_uint8.dir/depend.make           |     2 [31m-[m
+ .../CMakeFiles/uint32_to_uint8.dir/flags.make |    10 [31m-[m
+ .../CMakeFiles/uint32_to_uint8.dir/link.txt   |     1 [31m-[m
+ .../uint32_to_uint8.dir/progress.make         |     3 [31m-[m
+ .../uint32_to_uint8.dir/uint32_to_uint8.cpp.o |   Bin [31m46760[m -> [32m0[m bytes
+ .../uint32_to_uint8.cpp.o.d                   |   288 [31m-[m
+ .../uint8_to_float.dir/DependInfo.cmake       |    20 [31m-[m
+ .../CMakeFiles/uint8_to_float.dir/build.make  |   111 [31m-[m
+ .../uint8_to_float.dir/cmake_clean.cmake      |    11 [31m-[m
+ .../compiler_depend.internal                  |   366 [31m-[m
+ .../uint8_to_float.dir/compiler_depend.make   |  1087 [31m--[m
+ .../uint8_to_float.dir/compiler_depend.ts     |     2 [31m-[m
+ .../CMakeFiles/uint8_to_float.dir/depend.make |     2 [31m-[m
+ .../CMakeFiles/uint8_to_float.dir/flags.make  |    10 [31m-[m
+ .../CMakeFiles/uint8_to_float.dir/link.txt    |     1 [31m-[m
+ .../uint8_to_float.dir/progress.make          |     3 [31m-[m
+ .../uint8_to_float.dir/uint8_to_float.cpp.o   |   Bin [31m46784[m -> [32m0[m bytes
+ .../uint8_to_float.dir/uint8_to_float.cpp.o.d |   288 [31m-[m
+ .../vector_analysis.dir/DependInfo.cmake      |    20 [31m-[m
+ .../CMakeFiles/vector_analysis.dir/build.make |   111 [31m-[m
+ .../vector_analysis.dir/cmake_clean.cmake     |    11 [31m-[m
+ .../compiler_depend.internal                  |   377 [31m-[m
+ .../vector_analysis.dir/compiler_depend.make  |  1120 [31m--[m
+ .../vector_analysis.dir/compiler_depend.ts    |     2 [31m-[m
+ .../vector_analysis.dir/depend.make           |     2 [31m-[m
+ .../CMakeFiles/vector_analysis.dir/flags.make |    10 [31m-[m
+ .../CMakeFiles/vector_analysis.dir/link.txt   |     1 [31m-[m
+ .../vector_analysis.dir/progress.make         |     3 [31m-[m
+ .../vector_analysis.dir/vector_analysis.cpp.o |   Bin [31m152912[m -> [32m0[m bytes
+ .../vector_analysis.cpp.o.d                   |   294 [31m-[m
+ build/apps/utils/Makefile                     |  1239 [31m--[m
+ build/apps/utils/bin_to_tsv                   |   Bin [31m40968[m -> [32m0[m bytes
+ build/apps/utils/calculate_recall             |   Bin [31m97192[m -> [32m0[m bytes
+ build/apps/utils/cmake_install.cmake          |   468 [31m-[m
+ build/apps/utils/compute_groundtruth          |   Bin [31m382592[m -> [32m0[m bytes
+ .../utils/compute_groundtruth_for_filters     |   Bin [31m7651272[m -> [32m0[m bytes
+ build/apps/utils/count_bfs_levels             |   Bin [31m7101144[m -> [32m0[m bytes
+ build/apps/utils/create_disk_layout           |   Bin [31m8096616[m -> [32m0[m bytes
+ build/apps/utils/float_bin_to_int8            |   Bin [31m29256[m -> [32m0[m bytes
+ build/apps/utils/fvecs_to_bin                 |   Bin [31m29568[m -> [32m0[m bytes
+ build/apps/utils/fvecs_to_bvecs               |   Bin [31m29432[m -> [32m0[m bytes
+ build/apps/utils/gen_random_slice             |   Bin [31m266504[m -> [32m0[m bytes
+ build/apps/utils/generate_pq                  |   Bin [31m430088[m -> [32m0[m bytes
+ build/apps/utils/generate_synthetic_labels    |   Bin [31m316608[m -> [32m0[m bytes
+ build/apps/utils/int8_to_float                |   Bin [31m54440[m -> [32m0[m bytes
+ build/apps/utils/int8_to_float_scale          |   Bin [31m29256[m -> [32m0[m bytes
+ build/apps/utils/ivecs_to_bin                 |   Bin [31m29472[m -> [32m0[m bytes
+ build/apps/utils/merge_shards                 |   Bin [31m8096448[m -> [32m0[m bytes
+ build/apps/utils/partition_data               |   Bin [31m266512[m -> [32m0[m bytes
+ build/apps/utils/partition_with_ram_budget    |   Bin [31m266520[m -> [32m0[m bytes
+ build/apps/utils/rand_data_gen                |   Bin [31m312576[m -> [32m0[m bytes
+ build/apps/utils/simulate_aggregate_recall    |   Bin [31m43248[m -> [32m0[m bytes
+ build/apps/utils/stats_label_data             |   Bin [31m360040[m -> [32m0[m bytes
+ build/apps/utils/tsv_to_bin                   |   Bin [31m41016[m -> [32m0[m bytes
+ build/apps/utils/uint32_to_uint8              |   Bin [31m54440[m -> [32m0[m bytes
+ build/apps/utils/uint8_to_float               |   Bin [31m54440[m -> [32m0[m bytes
+ build/apps/utils/vector_analysis              |   Bin [31m100584[m -> [32m0[m bytes
+ build/cmake_install.cmake                     |    69 [31m-[m
+ build/create_disk_layout_data.py              |    21 [31m-[m
+ build/disk_base.data                          |   Bin [31m512000000[m -> [32m0[m bytes
+ build/disk_index.data                         |   Bin [31m512000008[m -> [32m0[m bytes
+ build/disk_index.index                        |   Bin [31m115298200[m -> [32m0[m bytes
+ build/disk_index_disk.index                   |   Bin [31m682672128[m -> [32m0[m bytes
+ build/disk_index_mem.index                    |   Bin [31m115307688[m -> [32m0[m bytes
+ build/disk_index_mem.index.data               |   Bin [31m512000008[m -> [32m0[m bytes
+ build/disk_index_pq_compressed.bin            |   Bin [31m32000008[m -> [32m0[m bytes
+ build/disk_index_pq_pivots.bin                |   Bin [31m135836[m -> [32m0[m bytes
+ build/disk_index_sample_data.bin              |   Bin [31m51256328[m -> [32m0[m bytes
+ build/disk_index_sample_ids.bin               |   Bin [31m400448[m -> [32m0[m bytes
+ build/except_metadata.py                      |     5 [31m-[m
+ build/mem_index                               |   Bin [31m115307616[m -> [32m0[m bytes
+ build/mem_index.data                          |   Bin [31m512000008[m -> [32m0[m bytes
+ build/metadata_copy.py                        |     8 [31m-[m
+ build/read_bin.py                             |    18 [31m-[m
+ .../CMakeDirectoryInformation.cmake           |    16 [31m-[m
+ .../CMakeFiles/diskann.dir/DependInfo.cmake   |    41 [31m-[m
+ .../diskann.dir/abstract_data_store.cpp.o     |   Bin [31m23848[m -> [32m0[m bytes
+ .../diskann.dir/abstract_data_store.cpp.o.d   |   220 [31m-[m
+ .../diskann.dir/abstract_index.cpp.o          |   Bin [31m322016[m -> [32m0[m bytes
+ .../diskann.dir/abstract_index.cpp.o.d        |   289 [31m-[m
+ .../diskann.dir/ann_exception.cpp.o           |   Bin [31m30968[m -> [32m0[m bytes
+ .../diskann.dir/ann_exception.cpp.o.d         |   152 [31m-[m
+ build/src/CMakeFiles/diskann.dir/build.make   |   463 [31m-[m
+ .../CMakeFiles/diskann.dir/cmake_clean.cmake  |    55 [31m-[m
+ .../diskann.dir/cmake_clean_target.cmake      |     3 [31m-[m
+ .../diskann.dir/compiler_depend.internal      |  9654 [31m--------------[m
+ .../diskann.dir/compiler_depend.make          | 11047 [31m----------------[m
+ .../CMakeFiles/diskann.dir/compiler_depend.ts |     2 [31m-[m
+ build/src/CMakeFiles/diskann.dir/depend.make  |     2 [31m-[m
+ .../CMakeFiles/diskann.dir/disk_utils.cpp.o   |   Bin [31m1582248[m -> [32m0[m bytes
+ .../CMakeFiles/diskann.dir/disk_utils.cpp.o.d |   491 [31m-[m
+ .../src/CMakeFiles/diskann.dir/distance.cpp.o |   Bin [31m136104[m -> [32m0[m bytes
+ .../CMakeFiles/diskann.dir/distance.cpp.o.d   |   366 [31m-[m
+ .../CMakeFiles/diskann.dir/filter_utils.cpp.o |   Bin [31m1386952[m -> [32m0[m bytes
+ .../diskann.dir/filter_utils.cpp.o.d          |   483 [31m-[m
+ build/src/CMakeFiles/diskann.dir/flags.make   |    10 [31m-[m
+ .../diskann.dir/in_mem_data_store.cpp.o       |   Bin [31m215168[m -> [32m0[m bytes
+ .../diskann.dir/in_mem_data_store.cpp.o.d     |   454 [31m-[m
+ .../diskann.dir/in_mem_graph_store.cpp.o      |   Bin [31m144448[m -> [32m0[m bytes
+ .../diskann.dir/in_mem_graph_store.cpp.o.d    |   294 [31m-[m
+ build/src/CMakeFiles/diskann.dir/index.cpp.o  |   Bin [31m13054352[m -> [32m0[m bytes
+ .../src/CMakeFiles/diskann.dir/index.cpp.o.d  |   487 [31m-[m
+ .../diskann.dir/index_factory.cpp.o           |   Bin [31m1261728[m -> [32m0[m bytes
+ .../diskann.dir/index_factory.cpp.o.d         |   471 [31m-[m
+ build/src/CMakeFiles/diskann.dir/link.txt     |     2 [31m-[m
+ .../linux_aligned_file_reader.cpp.o           |   Bin [31m303480[m -> [32m0[m bytes
+ .../linux_aligned_file_reader.cpp.o.d         |   318 [31m-[m
+ build/src/CMakeFiles/diskann.dir/logger.cpp.o |   Bin [31m2136[m -> [32m0[m bytes
+ .../src/CMakeFiles/diskann.dir/logger.cpp.o.d |   180 [31m-[m
+ .../CMakeFiles/diskann.dir/math_utils.cpp.o   |   Bin [31m167904[m -> [32m0[m bytes
+ .../CMakeFiles/diskann.dir/math_utils.cpp.o.d |   301 [31m-[m
+ .../diskann.dir/memory_mapper.cpp.o           |   Bin [31m5624[m -> [32m0[m bytes
+ .../diskann.dir/memory_mapper.cpp.o.d         |   200 [31m-[m
+ .../diskann.dir/natural_number_map.cpp.o      |   Bin [31m254376[m -> [32m0[m bytes
+ .../diskann.dir/natural_number_map.cpp.o.d    |   369 [31m-[m
+ .../diskann.dir/natural_number_set.cpp.o      |   Bin [31m126272[m -> [32m0[m bytes
+ .../diskann.dir/natural_number_set.cpp.o.d    |   371 [31m-[m
+ .../CMakeFiles/diskann.dir/partition.cpp.o    |   Bin [31m402552[m -> [32m0[m bytes
+ .../CMakeFiles/diskann.dir/partition.cpp.o.d  |   483 [31m-[m
+ build/src/CMakeFiles/diskann.dir/pq.cpp.o     |   Bin [31m531424[m -> [32m0[m bytes
+ build/src/CMakeFiles/diskann.dir/pq.cpp.o.d   |   310 [31m-[m
+ .../diskann.dir/pq_data_store.cpp.o           |   Bin [31m291216[m -> [32m0[m bytes
+ .../diskann.dir/pq_data_store.cpp.o.d         |   292 [31m-[m
+ .../diskann.dir/pq_flash_index.cpp.o          |   Bin [31m3005448[m -> [32m0[m bytes
+ .../diskann.dir/pq_flash_index.cpp.o.d        |   409 [31m-[m
+ .../diskann.dir/pq_l2_distance.cpp.o          |   Bin [31m181584[m -> [32m0[m bytes
+ .../diskann.dir/pq_l2_distance.cpp.o.d        |   291 [31m-[m
+ .../src/CMakeFiles/diskann.dir/progress.make  |    25 [31m-[m
+ .../src/CMakeFiles/diskann.dir/scratch.cpp.o  |   Bin [31m388120[m -> [32m0[m bytes
+ .../CMakeFiles/diskann.dir/scratch.cpp.o.d    |   462 [31m-[m
+ build/src/CMakeFiles/diskann.dir/utils.cpp.o  |   Bin [31m101376[m -> [32m0[m bytes
+ .../src/CMakeFiles/diskann.dir/utils.cpp.o.d  |   285 [31m-[m
+ .../CMakeFiles/diskann_s.dir/DependInfo.cmake |    41 [31m-[m
+ .../diskann_s.dir/abstract_data_store.cpp.o   |   Bin [31m23848[m -> [32m0[m bytes
+ .../diskann_s.dir/abstract_data_store.cpp.o.d |   220 [31m-[m
+ .../diskann_s.dir/abstract_index.cpp.o        |   Bin [31m322016[m -> [32m0[m bytes
+ .../diskann_s.dir/abstract_index.cpp.o.d      |   289 [31m-[m
+ .../diskann_s.dir/ann_exception.cpp.o         |   Bin [31m30968[m -> [32m0[m bytes
+ .../diskann_s.dir/ann_exception.cpp.o.d       |   152 [31m-[m
+ build/src/CMakeFiles/diskann_s.dir/build.make |   463 [31m-[m
+ .../diskann_s.dir/cmake_clean.cmake           |    55 [31m-[m
+ .../diskann_s.dir/cmake_clean_target.cmake    |     3 [31m-[m
+ .../diskann_s.dir/compiler_depend.internal    |  9654 [31m--------------[m
+ .../diskann_s.dir/compiler_depend.make        | 11047 [31m----------------[m
+ .../diskann_s.dir/compiler_depend.ts          |     2 [31m-[m
+ .../src/CMakeFiles/diskann_s.dir/depend.make  |     2 [31m-[m
+ .../CMakeFiles/diskann_s.dir/disk_utils.cpp.o |   Bin [31m1582248[m -> [32m0[m bytes
+ .../diskann_s.dir/disk_utils.cpp.o.d          |   491 [31m-[m
+ .../CMakeFiles/diskann_s.dir/distance.cpp.o   |   Bin [31m136104[m -> [32m0[m bytes
+ .../CMakeFiles/diskann_s.dir/distance.cpp.o.d |   366 [31m-[m
+ .../diskann_s.dir/filter_utils.cpp.o          |   Bin [31m1386952[m -> [32m0[m bytes
+ .../diskann_s.dir/filter_utils.cpp.o.d        |   483 [31m-[m
+ build/src/CMakeFiles/diskann_s.dir/flags.make |    10 [31m-[m
+ .../diskann_s.dir/in_mem_data_store.cpp.o     |   Bin [31m215168[m -> [32m0[m bytes
+ .../diskann_s.dir/in_mem_data_store.cpp.o.d   |   454 [31m-[m
+ .../diskann_s.dir/in_mem_graph_store.cpp.o    |   Bin [31m144448[m -> [32m0[m bytes
+ .../diskann_s.dir/in_mem_graph_store.cpp.o.d  |   294 [31m-[m
+ .../src/CMakeFiles/diskann_s.dir/index.cpp.o  |   Bin [31m13054352[m -> [32m0[m bytes
+ .../CMakeFiles/diskann_s.dir/index.cpp.o.d    |   487 [31m-[m
+ .../diskann_s.dir/index_factory.cpp.o         |   Bin [31m1261728[m -> [32m0[m bytes
+ .../diskann_s.dir/index_factory.cpp.o.d       |   471 [31m-[m
+ build/src/CMakeFiles/diskann_s.dir/link.txt   |     2 [31m-[m
+ .../linux_aligned_file_reader.cpp.o           |   Bin [31m303480[m -> [32m0[m bytes
+ .../linux_aligned_file_reader.cpp.o.d         |   318 [31m-[m
+ .../src/CMakeFiles/diskann_s.dir/logger.cpp.o |   Bin [31m2136[m -> [32m0[m bytes
+ .../CMakeFiles/diskann_s.dir/logger.cpp.o.d   |   180 [31m-[m
+ .../CMakeFiles/diskann_s.dir/math_utils.cpp.o |   Bin [31m167904[m -> [32m0[m bytes
+ .../diskann_s.dir/math_utils.cpp.o.d          |   301 [31m-[m
+ .../diskann_s.dir/memory_mapper.cpp.o         |   Bin [31m5624[m -> [32m0[m bytes
+ .../diskann_s.dir/memory_mapper.cpp.o.d       |   200 [31m-[m
+ .../diskann_s.dir/natural_number_map.cpp.o    |   Bin [31m254376[m -> [32m0[m bytes
+ .../diskann_s.dir/natural_number_map.cpp.o.d  |   369 [31m-[m
+ .../diskann_s.dir/natural_number_set.cpp.o    |   Bin [31m126272[m -> [32m0[m bytes
+ .../diskann_s.dir/natural_number_set.cpp.o.d  |   371 [31m-[m
+ .../CMakeFiles/diskann_s.dir/partition.cpp.o  |   Bin [31m402552[m -> [32m0[m bytes
+ .../diskann_s.dir/partition.cpp.o.d           |   483 [31m-[m
+ build/src/CMakeFiles/diskann_s.dir/pq.cpp.o   |   Bin [31m531424[m -> [32m0[m bytes
+ build/src/CMakeFiles/diskann_s.dir/pq.cpp.o.d |   310 [31m-[m
+ .../diskann_s.dir/pq_data_store.cpp.o         |   Bin [31m291216[m -> [32m0[m bytes
+ .../diskann_s.dir/pq_data_store.cpp.o.d       |   292 [31m-[m
+ .../diskann_s.dir/pq_flash_index.cpp.o        |   Bin [31m3005448[m -> [32m0[m bytes
+ .../diskann_s.dir/pq_flash_index.cpp.o.d      |   409 [31m-[m
+ .../diskann_s.dir/pq_l2_distance.cpp.o        |   Bin [31m181584[m -> [32m0[m bytes
+ .../diskann_s.dir/pq_l2_distance.cpp.o.d      |   291 [31m-[m
+ .../CMakeFiles/diskann_s.dir/progress.make    |    25 [31m-[m
+ .../CMakeFiles/diskann_s.dir/scratch.cpp.o    |   Bin [31m388120[m -> [32m0[m bytes
+ .../CMakeFiles/diskann_s.dir/scratch.cpp.o.d  |   462 [31m-[m
+ .../src/CMakeFiles/diskann_s.dir/utils.cpp.o  |   Bin [31m101376[m -> [32m0[m bytes
+ .../CMakeFiles/diskann_s.dir/utils.cpp.o.d    |   285 [31m-[m
+ build/src/CMakeFiles/progress.marks           |     1 [31m-[m
+ build/src/Makefile                            |   909 [31m--[m
+ build/src/cmake_install.cmake                 |    48 [31m-[m
+ build/src/libdiskann.a                        |   Bin [31m26421196[m -> [32m0[m bytes
+ build/src/libdiskann_s.a                      |   Bin [31m26421196[m -> [32m0[m bytes
+ 621 files changed, 174089 deletions(-)

@@ -948,8 +948,9 @@ inline size_t save_data_in_base_dimensions(const std::string &filename, T *data,
     int npts_i32 = (int)npts, ndims_i32 = (int)ndims;
     size_t bytes_written = 2 * sizeof(uint32_t) + npts * ndims * sizeof(T);
     writer.seekp(offset, writer.beg);
-    writer.write((char *)&npts_i32, sizeof(int));
-    writer.write((char *)&ndims_i32, sizeof(int));
+    // 메타데이터 저장 X
+    // writer.write((char *)&npts_i32, sizeof(int));
+    // writer.write((char *)&ndims_i32, sizeof(int));
     for (size_t i = 0; i < npts; i++)
     {
         writer.write((char *)(data + i * aligned_dim), ndims * sizeof(T));

@@ -848,7 +848,7 @@ void create_disk_layout(const std::string base_file, const std::string mem_index
                         const std::string reorder_data_file)
 {
     uint32_t npts, ndims;
-    std::cout << base_file << "?????????????????????????????BASE\n";
+
     // amount to read or write in one shot
     size_t read_blk_size = 64 * 1024 * 1024;
     size_t write_blk_size = read_blk_size;
@@ -962,9 +962,18 @@ void create_disk_layout(const std::string base_file, const std::string mem_index
         output_file_meta.push_back(ndims_reorder_file);
         output_file_meta.push_back(n_data_nodes_per_sector);
     }
-    output_file_meta.push_back(disk_index_file_size);
-
-    diskann_writer.write(sector_buf.get(), defaults::SECTOR_LEN);
+    // output_file_meta.push_back(disk_index_file_size);
+    uint32_t nr = 9;
+    uint32_t nc = 1;
+    std::cout << "!!!!!!!!!!SIZE: " << output_file_meta.size() << std::endl;
+    diskann_writer.write((char *)&nr, sizeof(uint32_t));
+    diskann_writer.write((char *)&nc, sizeof(uint32_t));
+    for (auto metadata : output_file_meta)
+    {
+        diskann_writer.write((char *)&metadata, sizeof(uint64_t));
+    }
+    
+    // diskann_writer.write(sector_buf.get(), defaults::SECTOR_LEN);
 
     std::unique_ptr<T[]> cur_node_coords = std::make_unique<T[]>(ndims_64);
     diskann::cout << "# sectors: " << n_sectors << std::endl;
@@ -1000,15 +1009,16 @@ void create_disk_layout(const std::string base_file, const std::string mem_index
                 // write coords of node first
                 //  T *node_coords = data + ((uint64_t) ndims_64 * cur_node_id);
                 base_reader.read((char *)cur_node_coords.get(), sizeof(T) * ndims_64);
-                memcpy(node_buf.get(), cur_node_coords.get(), ndims_64 * sizeof(T));
+                // memcpy(node_buf.get(), cur_node_coords.get(), ndims_64 * sizeof(T));
 
                 // write nnbrs
-                *(uint32_t *)(node_buf.get() + ndims_64 * sizeof(T)) = (std::min)(nnbrs, width_u32);
+                *(uint32_t *)(node_buf.get()) = (std::min)(nnbrs, width_u32);
 
                 // write nhood next
-                memcpy(node_buf.get() + ndims_64 * sizeof(T) + sizeof(uint32_t), nhood_buf,
+                memcpy(node_buf.get() + sizeof(uint32_t), nhood_buf,
                        (std::min)(nnbrs, width_u32) * sizeof(uint32_t));
-
+                
+                diskann_writer.write(node_buf.get(), max_node_len);
                 // get offset into sector_buf
                 char *sector_node_buf = sector_buf.get() + (sector_node_id * max_node_len);
 
@@ -1017,7 +1027,7 @@ void create_disk_layout(const std::string base_file, const std::string mem_index
                 cur_node_id++;
             }
             // flush sector to disk
-            diskann_writer.write(sector_buf.get(), defaults::SECTOR_LEN);
+            // diskann_writer.write(sector_buf.get(), defaults::SECTOR_LEN);
         }
     }
     else
@@ -1093,7 +1103,7 @@ void create_disk_layout(const std::string base_file, const std::string mem_index
         }
     }
     diskann_writer.close();
-    diskann::save_bin<uint64_t>(output_file, output_file_meta.data(), output_file_meta.size(), 1, 0);
+    // diskann::save_bin<uint64_t>(output_file, output_file_meta.data(), output_file_meta.size(), 1, 0);
     diskann::cout << "Output disk index file written to " << output_file << std::endl;
 }
 

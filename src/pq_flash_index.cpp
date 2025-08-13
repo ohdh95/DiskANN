@@ -814,7 +814,7 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
 
     size_t pq_file_dim, pq_file_num_centroids;
 
-    std::string mem_index_file = std::string(mem_index_filepath) + "_mem.index";
+    std::string mem_index_file = std::string(mem_index_filepath) + "_disk.index";
     std::string data_file = std::string(mem_index_filepath) + "_mem.index.data";
 
 #ifdef EXEC_ENV_OLS
@@ -1077,9 +1077,10 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
     READ_U64(index, medoid_id_on_file);
     READ_U64(index, _max_node_len);
     READ_U64(index, _nnodes_per_sector);
-    _nnodes_per_sector = 4096 / (disk_ndims * sizeof(T));
-    _max_degree = ((_max_node_len - _disk_bytes_per_point) / sizeof(uint32_t)) - 1;
-
+    _nnodes_per_sector = defaults::SECTOR_LEN / (disk_ndims * sizeof(T));
+    _max_degree = ((_max_node_len) / sizeof(uint32_t)) - 1;
+    std::cout << "Max node len: " << _max_node_len << ", nnodes per sector: " << _nnodes_per_sector
+              << ", max degree: " << _max_degree << std::endl;
     if (_max_degree > defaults::MAX_GRAPH_DEGREE)
     {
         std::stringstream stream;
