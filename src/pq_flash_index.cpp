@@ -509,7 +509,7 @@ template <typename T, typename LabelT> void PQFlashIndex<T, LabelT>::use_medoids
         medoid_bufs.push_back(new T[_data_dim]);
         nbr_bufs.emplace_back(0, nullptr);
     }
-
+    std::cout << "!!!!!!!!!!!!!!!!!!!!!!!\n";
     auto read_status = read_nodes(nodes_to_read, medoid_bufs, nbr_bufs);
 
     for (uint64_t cur_m = 0; cur_m < _num_medoids; cur_m++)
@@ -1114,19 +1114,23 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
     // }
 
     // this->mem_index = new uint32_t[(_max_degree + 1) * disk_nnodes];
+    size_t len = (_max_degree + 1) * disk_nnodes * sizeof(uint32_t) + 72;
     size_t mapped_len;
     int is_pmem;
-    
-    this->mem_index = (uint32_t*)pmem_map_file(mem_index_file.c_str(), (_max_degree + 1) * disk_nnodes * sizeof(uint32_t),
-                               0, 0,
+    int flag = PMEM_FILE_CREATE;
+    mode_t perm = 0666;
+    std::cout << "!!!!!!!!!!!!1Loading disk index file: " << mem_index_file << std::endl;
+    this->mem_index = (uint32_t*)pmem_map_file(mem_index_file.c_str(), len,
+                               flag, perm,
                                &mapped_len, &is_pmem);
     
     if (this->mem_index == nullptr) {
-        perror("mmap");
-    	index.close();
+    	perror("pmem_map_file failed");
+        index.close();
         throw std::runtime_error("Failed to mmap mem_index_file");
     }
     // index.read((char *)this->mem_index, (_max_degree + 1) * disk_nnodes * sizeof(uint32_t));
+    this->mem_index = this->mem_index + (72 / sizeof(uint32_t)); // skip the first 72 bytes
 
     diskann::cout << "Disk-Index File Meta-data: ";
     diskann::cout << "# nodes per sector: " << _nnodes_per_sector;
