@@ -893,7 +893,11 @@ void create_disk_layout(const std::string base_file, const std::string mem_index
     size_t actual_file_size = get_file_size(mem_index_file);
     diskann::cout << "Vamana index file size=" << actual_file_size << std::endl;
     std::ifstream vamana_reader(mem_index_file, std::ios::binary);
-    cached_ofstream diskann_writer(output_file, write_blk_size);
+    // PM에 저장
+    std::string pm_prefix = "/home/ohdh95/mnt";
+    std::string pm_output_file = pm_prefix + output_file.substr(1);
+    std::cout << "!!!!!!!!!!!!!!!!!!!!" << pm_output_file << std::endl;
+    cached_ofstream diskann_writer(pm_output_file, write_blk_size);
 
     // metadata: width, medoid
     uint32_t width_u32, medoid_u32;
