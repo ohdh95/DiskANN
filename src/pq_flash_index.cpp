@@ -8,7 +8,7 @@
 #include "pq_scratch.h"
 #include "pq_flash_index.h"
 #include "cosine_similarity.h"
-
+#include <libpmem.h>
 #ifdef _WINDOWS
 #include "windows_aligned_file_reader.h"
 #else
@@ -63,10 +63,6 @@ template <typename T, typename LabelT> PQFlashIndex<T, LabelT>::~PQFlashIndex()
         delete[] data;
     }
 
-    if (mem_index != nullptr)
-    {
-        delete[] mem_index;
-    }
 #endif
 
     if (_centroid_data != nullptr)
@@ -813,8 +809,9 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
     size_t num_pts_in_label_file = 0;
 
     size_t pq_file_dim, pq_file_num_centroids;
-
-    std::string mem_index_file = std::string(mem_index_filepath) + "_disk.index";
+    
+    std::string pm_prefix = "/home/ohdh95/mnt";
+    std::string mem_index_file = pm_prefix + std::string(mem_index_filepath).substr(1) + "_disk.index";
     std::string data_file = std::string(mem_index_filepath) + "_mem.index.data";
 
 #ifdef EXEC_ENV_OLS
@@ -1116,9 +1113,20 @@ int PQFlashIndex<T, LabelT>::load_from_separate_paths(uint32_t num_threads, cons
     //     READ_U64(mem_index, this->_nvecs_per_sector);
     // }
 
-    this->mem_index = new uint32_t[(_max_degree + 1) * disk_nnodes];
-
-    index.read((char *)this->mem_index, (_max_degree + 1) * disk_nnodes * sizeof(uint32_t));
+    // this->mem_index = new uint32_t[(_max_degree + 1) * disk_nnodes];
+    size_t mapped_len;
+    int is_pmem;
+    
+    this->mem_index = (uint32_t*)pmem_map_file(mem_index_file.c_str(), (_max_degree + 1) * disk_nnodes * sizeof(uint32_t),
+                               0, 0,
+                               &mapped_len, &is_pmem);
+    
+    if (this->mem_index == nullptr) {
+        perror("mmap");
+    	index.close();
+        throw std::runtime_error("Failed to mmap mem_index_file");
+    }
+    // index.read((char *)this->mem_index, (_max_degree + 1) * disk_nnodes * sizeof(uint32_t));
 
     diskann::cout << "Disk-Index File Meta-data: ";
     diskann::cout << "# nodes per sector: " << _nnodes_per_sector;

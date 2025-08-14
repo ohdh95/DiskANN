@@ -204,6 +204,32 @@ else()
     endif()
 endif()
 
+find_path(PMEM_INCLUDE_DIR NAMES libpmem.h)
+
+# 2. 라이브러리 파일 경로 찾기
+# 시스템 경로에서 libpmem.so 또는 libpmem.a 파일을 찾아 전체 경로를 PMEM_LIBRARY 변수에 저장
+find_library(PMEM_LIBRARY NAMES pmem)
+
+# 3. 헤더와 라이브러리를 모두 찾았는지 확인하고, 찾았다면 라이브러리 타겟 생성
+if(PMEM_INCLUDE_DIR AND PMEM_LIBRARY)
+    # 서브 디렉터리에서 사용할 수 있도록 pmem_FOUND 변수를 TRUE로 설정
+    set(pmem_FOUND TRUE)
+    message(STATUS "Found libpmem manually: ${PMEM_LIBRARY}")
+
+    # pmem::libpmem 이라는 가상 타겟(Imported Target)이 없으면 생성
+    # find_package가 해주던 역할을 직접 수행하는 과정
+    if(NOT TARGET pmem::libpmem)
+        add_library(pmem::libpmem UNKNOWN IMPORTED)
+        set_target_properties(pmem::libpmem PROPERTIES
+            IMPORTED_LOCATION "${PMEM_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${PMEM_INCLUDE_DIR}"
+        )
+    endif()
+else()
+    set(pmem_FOUND FALSE)
+    message(WARNING "libpmem (PMDK) not found manually.")
+endif()
+
 add_definitions(-DMKL_ILP64)
 
 # Section for tcmalloc. The DiskANN tools are always linked to tcmalloc. For Windows, they also need to

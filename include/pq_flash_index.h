@@ -184,7 +184,7 @@ template <typename T, typename LabelT = uint32_t> class PQFlashIndex
     uint64_t _n_chunks;
     FixedChunkPQTable _pq_table;
 
-    // 이웃 버퍼
+    // 이웃 파일 I/O
     uint32_t *mem_index = nullptr; // uint32_t[max_degree * disk_nnodes]
 
     // distance comparator
