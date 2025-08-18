@@ -131,12 +131,12 @@ void PQFlashIndex<T, LabelT>::setup_thread_data(uint64_t nthreads, uint64_t visi
     for (int64_t thread = 0; thread < (int64_t)nthreads; thread++)
     {
 #pragma omp critical
-        {
-            SSDThreadData<T> *data = new SSDThreadData<T>(this->_aligned_dim, visited_reserve);
-            this->reader->register_thread();
-            data->ctx = this->reader->get_ctx();
-            this->_thread_data.push(data);
-        }
+            {
+                SSDThreadData<T> *data = new SSDThreadData<T>(this->_aligned_dim, visited_reserve);
+                this->reader->register_thread();
+                data->ctx = this->reader->get_ctx();
+                this->_thread_data.push(data);
+            }
     }
     _load_flag = true;
 }
@@ -775,15 +775,6 @@ template <typename T, typename LabelT> int PQFlashIndex<T, LabelT>::load(uint32_
 #endif
 }
 
-// template <typename T, typename LabelT>
-// int PQFlashIndex<T, LabelT>::load_mem(const char *index_prefix)
-// {
-//     std::string mem_index_file = std::string(index_prefix) + "_mem.index";
-//     std::string data_file = std::string(index_prefix) + "_mem.index.data";
-
-//     mem_index = new T[(_max_degree + 1) * ]
-// }
-
 #ifdef EXEC_ENV_OLS
 template <typename T, typename LabelT>
 int PQFlashIndex<T, LabelT>::load_from_separate_paths(diskann::MemoryMappedFiles &files, uint32_t num_threads,
@@ -1340,6 +1331,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     // sector scratch
     char *sector_scratch = query_scratch->sector_scratch;
     uint64_t &sector_scratch_idx = query_scratch->sector_idx;
+    sector_scratch_idx = 0;
     const uint64_t num_sectors_per_node =
         _nnodes_per_sector > 0 ? 1 : DIV_ROUND_UP(_max_node_len, defaults::SECTOR_LEN);
 
@@ -1413,10 +1405,9 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         frontier_nhoods.clear();
         frontier_read_reqs.clear();
         cached_nhoods.clear();
-        sector_scratch_idx = 0;
+        // sector_scratch_idx = 0;
         // find new beam
         uint32_t num_seen = 0;
-        std::vector<float> distan;
 
         // frontier에 가장 가까운 이웃 id beam_width개 push
         while (retset.has_unexpanded_node() && frontier.size() < beam_width && num_seen < beam_width)
@@ -1424,22 +1415,20 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
             auto nbr = retset.closest_unexpanded(); // 가장 가까운 이웃, Neighbor(unsigned id, float distance, bool expanded)
             num_seen++;
             // cache할 경우에 필요, 일단 패스
-            // auto iter = _nhood_cache.find(nbr.id);
-            // if (iter != _nhood_cache.end())
-            // {
-            //     cached_nhoods.push_back(std::make_pair(nbr.id, iter->second));
-            //     if (stats != nullptr)
-            //     {
-            //         stats->n_cache_hits++;
-            //     }
-            // }
-            // else
-            // {
+            auto iter = _nhood_cache.find(nbr.id);
+            if (iter != _nhood_cache.end())
+            {
+                cached_nhoods.push_back(std::make_pair(nbr.id, iter->second));
+                if (stats != nullptr)
+                {
+                    stats->n_cache_hits++;
+                }
+            }
+            else
+            {
                 frontier.push_back(nbr.id);
-                // distan.push_back(nbr.distance);
-            // }
+            }
             
-            // 몰?루, 근데 일단 안지남
             if (this->_count_visited_nodes)
             {
                 reinterpret_cast<std::atomic<uint32_t> &>(this->_node_visit_counter[nbr.id].second).fetch_add(1);
@@ -1459,7 +1448,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                 auto id = frontier[i];
                 std::pair<uint32_t, char *> fnhood;
                 fnhood.first = id;
-                fnhood.second = sector_scratch + num_sectors_per_node * sector_scratch_idx * defaults::SECTOR_LEN; // 읽어올 버퍼
+                fnhood.second = sector_scratch + num_sectors_per_node * sector_scratch_idx * defaults::SECTOR_LEN; // 읽어올 버퍼, defaults::SECTOR_LEN 대신 sizeof(T) * _data_dim
                 sector_scratch_idx++;
                 frontier_nhoods.push_back(fnhood);
                 // 읽기 요청 생성
@@ -1486,57 +1475,57 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         }
 
         // process cached nhoods
-        // cache 할 때 사용
-        // for (auto &cached_nhood : cached_nhoods)
-        // {
-        //     auto global_cache_iter = _coord_cache.find(cached_nhood.first);
-        //     T *node_fp_coords_copy = global_cache_iter->second;
-        //     float cur_expanded_dist;
-        //     if (!_use_disk_index_pq)
-        //     {
-        //         cur_expanded_dist = _dist_cmp->compare(aligned_query_T, node_fp_coords_copy, (uint32_t)_aligned_dim);
-        //     }
-        //     else
-        //     {
-        //         if (metric == diskann::Metric::INNER_PRODUCT)
-        //             cur_expanded_dist = _disk_pq_table.inner_product(query_float, (uint8_t *)node_fp_coords_copy);
-        //         else
-        //             cur_expanded_dist = _disk_pq_table.l2_distance( // disk_pq does not support OPQ yet
-        //                 query_float, (uint8_t *)node_fp_coords_copy);
-        //     }
-        //     full_retset.push_back(Neighbor((uint32_t)cached_nhood.first, cur_expanded_dist));
+        // // cache 할 때 사용
+        for (auto &cached_nhood : cached_nhoods)
+        {
+            auto global_cache_iter = _coord_cache.find(cached_nhood.first);
+            T *node_fp_coords_copy = global_cache_iter->second;
+            float cur_expanded_dist;
+            if (!_use_disk_index_pq)
+            {
+                cur_expanded_dist = _dist_cmp->compare(aligned_query_T, node_fp_coords_copy, (uint32_t)_aligned_dim);
+            }
+            else
+            {
+                if (metric == diskann::Metric::INNER_PRODUCT)
+                    cur_expanded_dist = _disk_pq_table.inner_product(query_float, (uint8_t *)node_fp_coords_copy);
+                else
+                    cur_expanded_dist = _disk_pq_table.l2_distance( // disk_pq does not support OPQ yet
+                        query_float, (uint8_t *)node_fp_coords_copy);
+            }
+            full_retset.push_back(Neighbor((uint32_t)cached_nhood.first, cur_expanded_dist));
 
-        //     uint64_t nnbrs = cached_nhood.second.first;
-        //     uint32_t *node_nbrs = cached_nhood.second.second;
+            uint64_t nnbrs = cached_nhood.second.first;
+            uint32_t *node_nbrs = cached_nhood.second.second;
 
-        //     // compute node_nbrs <-> query dists in PQ space
-        //     cpu_timer.reset();
-        //     compute_dists(node_nbrs, nnbrs, dist_scratch);
-        //     if (stats != nullptr)
-        //     {
-        //         stats->n_cmps += (uint32_t)nnbrs;
-        //         stats->cpu_us += (float)cpu_timer.elapsed();
-        //     }
+            // compute node_nbrs <-> query dists in PQ space
+            cpu_timer.reset();
+            compute_dists(node_nbrs, nnbrs, dist_scratch);
+            if (stats != nullptr)
+            {
+                stats->n_cmps += (uint32_t)nnbrs;
+                stats->cpu_us += (float)cpu_timer.elapsed();
+            }
 
-        //     // process prefetched nhood
-        //     for (uint64_t m = 0; m < nnbrs; ++m)
-        //     {
-        //         uint32_t id = node_nbrs[m];
-        //         if (visited.insert(id).second)
-        //         {
-        //             if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end())
-        //                 continue;
+            // process prefetched nhood
+            for (uint64_t m = 0; m < nnbrs; ++m)
+            {
+                uint32_t id = node_nbrs[m];
+                if (visited.insert(id).second)
+                {
+                    if (!use_filter && _dummy_pts.find(id) != _dummy_pts.end())
+                        continue;
 
-        //             if (use_filter && !(point_has_label(id, filter_label)) &&
-        //                 (!_use_universal_label || !point_has_label(id, _universal_filter_label)))
-        //                 continue;
-        //             cmps++;
-        //             float dist = dist_scratch[m];
-        //             Neighbor nn(id, dist);
-        //             retset.insert(nn);
-        //         }
-        //     }
-        // }
+                    if (use_filter && !(point_has_label(id, filter_label)) &&
+                        (!_use_universal_label || !point_has_label(id, _universal_filter_label)))
+                        continue;
+                    cmps++;
+                    float dist = dist_scratch[m];
+                    Neighbor nn(id, dist);
+                    retset.insert(nn);
+                }
+            }
+        }
 
         // frontier_nhoods에는 frontier의 {id, 읽어온 섹터 버퍼}
         for (auto &frontier_nhood : frontier_nhoods)
@@ -1660,6 +1649,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
 //     }
 
     // copy k_search values
+    // 결과 저장
     for (uint64_t i = 0; i < k_search; i++)
     {
         indices[i] = full_retset[i].id;
