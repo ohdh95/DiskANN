@@ -28,7 +28,7 @@
 namespace diskann {
   template<typename T>
   struct QueryScratch {
-    T   *coord_scratch = nullptr;  // MUST BE AT LEAST [MAX_N_CMPS * data_dim]
+    T *  coord_scratch = nullptr;  // MUST BE AT LEAST [MAX_N_CMPS * data_dim]
     _u64 coord_idx = 0;            // index of next [data_dim] scratch to use
 
     char *sector_scratch =
@@ -42,7 +42,7 @@ namespace diskann {
         nullptr;  // MUST BE AT LEAST diskann MAX_DEGREE
     _u8 *aligned_pq_coord_scratch =
         nullptr;  // MUST BE AT LEAST  [N_CHUNKS * MAX_DEGREE]
-    T     *aligned_query_T = nullptr;
+    T *    aligned_query_T = nullptr;
     float *aligned_query_float = nullptr;
 
     void reset() {
@@ -54,7 +54,7 @@ namespace diskann {
   template<typename T>
   struct DiskNode {
     uint32_t  id = 0;
-    T        *coords = nullptr;
+    T *       coords = nullptr;
     uint32_t  nnbrs;
     uint32_t *nbrs;
 
@@ -151,7 +151,7 @@ namespace diskann {
      */
     DISKANN_DLLEXPORT void disk_iterate_to_fixed_point(
         const T *vec, const uint32_t Lsize, const uint32_t beam_width,
-        std::vector<Neighbor>         &expanded_nodes_info,
+        std::vector<Neighbor> &        expanded_nodes_info,
         tsl::robin_map<uint32_t, T *> *coord_map = nullptr,
         QueryStats *stats = nullptr, ThreadData<T> *passthrough_data = nullptr,
         tsl::robin_set<uint32_t> *exclude_nodes = nullptr);
@@ -205,7 +205,7 @@ namespace diskann {
     // deflates `vec` into PQ ids
     DISKANN_DLLEXPORT std::vector<_u8> deflate_vector(const T *vec);
     std::pair<_u8 *, _u32>             get_pq_config() {
-                  return std::make_pair(this->data, (uint32_t) this->n_chunks);
+      return std::make_pair(this->data, (uint32_t) this->n_chunks);
     }
     void set_pq_data(_u8 *_data) {
       this->data = _data;
@@ -258,7 +258,7 @@ namespace diskann {
     // data: _u8 * n_chunks
     // chunk_size = chunk size of each dimension chunk
     // pq_tables = float* [[2^8 * [chunk_size]] * n_chunks]
-    _u8                 *data = nullptr;
+    _u8 *                data = nullptr;
     _u64                 chunk_size;
     _u64                 n_chunks;
     FixedChunkPQTable<T> pq_table;
@@ -290,7 +290,7 @@ namespace diskann {
         nhood_cache;  // 三元组<id,hood_num,vector_hood>
 
     // coord_cache
-    T                        *coord_cache_buf = nullptr;
+    T *                       coord_cache_buf = nullptr;
     tsl::robin_map<_u32, T *> coord_cache;  //<id,coord>
 
     // thread-specific scratch
@@ -320,7 +320,7 @@ namespace diskann {
     // any additions we make to the header. This is an outer limit
     // on how big the header can be.
     static const int HEADER_SIZE = 256;
-    char            *getHeaderBytes();
+    char *           getHeaderBytes();
 #endif
   };
 }  // namespace diskann

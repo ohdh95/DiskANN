@@ -18,6 +18,9 @@
 mono_crash.*
 
 # Build results
+build/
+scripts/indices/
+scripts/dataset/
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/

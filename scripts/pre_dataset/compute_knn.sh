@@ -1,9 +1,9 @@
 g++ compute_knn.cpp -fopenmp -o ck
 
 dataset=sift
-basefile=/data/linsy/Greator/scripts/dataset/"$dataset"/"$dataset"_base.fbin
-queryfile=/data/linsy/Greator/scripts/dataset/"$dataset"/"$dataset"_query.fbin
-gt_prefix=/data/linsy/Greator/scripts/dataset/"$dataset"/gt
+basefile=/home/ohdh95/update/Greator/scripts/dataset/"$dataset"/"$dataset"_base.fbin
+queryfile=/home/ohdh95/update/Greator/scripts/dataset/"$dataset"/"$dataset"_query.fbin
+gt_prefix=/home/ohdh95/update/Greator/scripts/dataset/"$dataset"/gt
 mkdir $gt_prefix
 # 从0到50的数字进行循环
 for i in {0..50}

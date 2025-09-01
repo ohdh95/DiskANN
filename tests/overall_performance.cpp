@@ -220,14 +220,14 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
   if (calRecall) {
     if (merged) {
       std::string cur_result_path =
-          "/data/linsy/Cout/overall_res/"
+          "/home/ohdh95/update/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + "merged.bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,
                           query_result_dists, query_num, recall_at);
     } else {
       std::string cur_result_path =
-          "/data/linsy/Cout/overall_res/"
+          "/home/ohdh95/update/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + ".bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,
@@ -255,15 +255,15 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
                                         latency_stats.end(), 0)) /
                    (float) query_num
             << std::setw(12)
-            << (float) latency_stats[(_u64) (0.50 * ((double) query_num))]
+            << (float) latency_stats[(_u64)(0.50 * ((double) query_num))]
             << std::setw(12)
-            << (float) latency_stats[(_u64) (0.90 * ((double) query_num))]
+            << (float) latency_stats[(_u64)(0.90 * ((double) query_num))]
             << std::setw(12)
-            << (float) latency_stats[(_u64) (0.95 * ((double) query_num))]
+            << (float) latency_stats[(_u64)(0.95 * ((double) query_num))]
             << std::setw(12)
-            << (float) latency_stats[(_u64) (0.99 * ((double) query_num))]
+            << (float) latency_stats[(_u64)(0.99 * ((double) query_num))]
             << std::setw(12)
-            << (float) latency_stats[(_u64) (0.999 * ((double) query_num))]
+            << (float) latency_stats[(_u64)(0.999 * ((double) query_num))]
             << std::setw(12) << recall << std::setw(12) << mean_ios
             << std::endl;
 
@@ -312,19 +312,19 @@ void deletion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
   std::cout << "Mem index deletion time : " << timer.elapsed() / 1000 << " ms"
             << std::endl
             << "10th percentile deletion time : "
-            << delete_latencies[(size_t) (0.10 * ((double) npts))]
-            << " microsec" << std::endl
+            << delete_latencies[(size_t)(0.10 * ((double) npts))] << " microsec"
+            << std::endl
             << "50th percentile deletion time : "
-            << delete_latencies[(size_t) (0.5 * ((double) npts))] << " microsec"
+            << delete_latencies[(size_t)(0.5 * ((double) npts))] << " microsec"
             << std::endl
             << "90th percentile deletion time : "
-            << delete_latencies[(size_t) (0.90 * ((double) npts))]
-            << " microsec" << std::endl
+            << delete_latencies[(size_t)(0.90 * ((double) npts))] << " microsec"
+            << std::endl
             << "99th percentile deletion time : "
-            << delete_latencies[(size_t) (0.99 * ((double) npts))]
-            << " microsec" << std::endl
+            << delete_latencies[(size_t)(0.99 * ((double) npts))] << " microsec"
+            << std::endl
             << "99.9th percentile deletion time : "
-            << delete_latencies[(size_t) (0.999 * ((double) npts))]
+            << delete_latencies[(size_t)(0.999 * ((double) npts))]
             << " microsec" << std::endl;
 }
 
@@ -348,19 +348,19 @@ void insertion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
   std::cout << "Mem index insertion time : " << timer.elapsed() / 1000 << " ms"
             << std::endl
             << "10th percentile insertion time : "
-            << insert_latencies[(size_t) (0.10 * ((double) npts))]
-            << " microsec" << std::endl
+            << insert_latencies[(size_t)(0.10 * ((double) npts))] << " microsec"
+            << std::endl
             << "50th percentile insertion time : "
-            << insert_latencies[(size_t) (0.5 * ((double) npts))] << " microsec"
+            << insert_latencies[(size_t)(0.5 * ((double) npts))] << " microsec"
             << std::endl
             << "90th percentile insertion time : "
-            << insert_latencies[(size_t) (0.90 * ((double) npts))]
-            << " microsec" << std::endl
+            << insert_latencies[(size_t)(0.90 * ((double) npts))] << " microsec"
+            << std::endl
             << "99th percentile insertion time : "
-            << insert_latencies[(size_t) (0.99 * ((double) npts))]
-            << " microsec" << std::endl
+            << insert_latencies[(size_t)(0.99 * ((double) npts))] << " microsec"
+            << std::endl
             << "99.9th percentile insertion time : "
-            << insert_latencies[(size_t) (0.999 * ((double) npts))]
+            << insert_latencies[(size_t)(0.999 * ((double) npts))]
             << " microsec" << std::endl;
 }
 
@@ -461,7 +461,7 @@ void update(const std::string& data_path, const unsigned L_mem,
 
   std::cout << "Searching before inserts: " << std::endl;
   tsl::robin_set<TagT> inactive_tags;
-  // truthset_file="/data/linsy/dataset/deep/gt/deep_gt_K10_"
+  // truthset_file="/home/ohdh95/update/dataset/deep/gt/deep_gt_K10_"
   std::string currentFileName = truthset_file + std::to_string(0) + ".fbin";
   std::cout << "Current_GT_File: " << currentFileName << std::endl;
   begin_time = globalTimer.elapsed() / 1.0e6f;
@@ -525,7 +525,7 @@ void update(const std::string& data_path, const unsigned L_mem,
     std::string currentFileName =
         truthset_file + std::to_string(i + 1) + ".fbin";
     std::cout << "Current_GT_File: " << currentFileName << std::endl;
-    if ((i + 1) % 10 == 0)
+    // if ((i + 1) % 10 == 0)
       sync_search_kernel(query, query_num, query_aligned_dim, recall_at,
                          Lsearch, sync_index, currentFileName, inactive_tags,
                          res, true, true);

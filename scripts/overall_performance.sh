@@ -1,6 +1,6 @@
 
 clear
-project_dir=/data/linsy/Greator
+project_dir=/home/ohdh95/update/Greator
 id_map=2
 delete_dir="$project_dir/scripts/indices/sift_R34"
 batchsize=0.001
@@ -12,11 +12,11 @@ rm -r "$delete_dir"/_index_temp
 mkdir "$delete_dir"/_index_temp
 
 
-cd /data/linsy/Greator/build && make -j 
-cd /data/linsy/Greator/run
+cd /home/ohdh95/update/Greator/build && make -j 
+cd /home/ohdh95/update/Greator/run
 
 name=sift
-mydir="/data/linsy/Greator/scripts"
+mydir="/home/ohdh95/update/Greator/scripts"
 index_type="float"
 base_data_file="$mydir"/dataset/"$name"/"$name"_base_95.fbin
 L_mem=75

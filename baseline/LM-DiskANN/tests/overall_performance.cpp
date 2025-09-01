@@ -247,14 +247,14 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
   if (calRecall) {
     if (merged) {
       std::string cur_result_path =
-          "/data/linsy/Cout/overall_res/"
+          "/home/ohdh95/update/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + "merged.bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,
                           query_result_dists, query_num, recall_at);
     } else {
       std::string cur_result_path =
-          "/data/linsy/Cout/overall_res/"
+          "/home/ohdh95/update/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + ".bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,
@@ -262,7 +262,7 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
     }
 
     // std::ifstream reader_tags(
-    //     "/data/linsy/dataset/gist/gist_learn.fbin_without_delete_vec_tags");
+    //     "/home/ohdh95/update/dataset/gist/gist_learn.fbin_without_delete_vec_tags");
     // std::string      line;
     // std::vector<int> remove_tags(500000 - MERGE_TH);
     // // 逐行读取文件内容

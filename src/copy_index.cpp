@@ -143,7 +143,7 @@ namespace diskann {
       return 0;
     }
     size_t tag_bytes_written;
-    TagT  *tag_data = new TagT[_nd + _num_frozen_pts];
+    TagT * tag_data = new TagT[_nd + _num_frozen_pts];
     for (_u32 i = 0; i < _nd; i++) {
       if (_location_to_tag.find(i) != _location_to_tag.end()) {
         tag_data[i] = _location_to_tag[i];
@@ -190,7 +190,7 @@ namespace diskann {
       max_degree = _final_graph[i].size() > max_degree
                        ? (_u32) _final_graph[i].size()
                        : max_degree;
-      index_size += (_u64) (sizeof(unsigned) * (GK + 1));
+      index_size += (_u64)(sizeof(unsigned) * (GK + 1));
     }
     out.seekp(offset, out.beg);
     out.write((char *) &index_size, sizeof(uint64_t));
@@ -286,7 +286,7 @@ namespace diskann {
     }
 
     size_t file_dim, file_num_points;
-    TagT  *tag_data;
+    TagT * tag_data;
     load_bin<TagT>(std::string(tag_filename), tag_data, file_num_points,
                    file_dim, offset);
 
@@ -526,7 +526,7 @@ namespace diskann {
     }
     unsigned location = _tag_to_location[tag];
     // memory should be allocated for vec before calling this function
-    memcpy((void *) vec, (void *) (_data + (size_t) (location * _aligned_dim)),
+    memcpy((void *) vec, (void *) (_data + (size_t)(location * _aligned_dim)),
            (size_t) _aligned_dim * sizeof(T));
     return 0;
   }
@@ -540,7 +540,7 @@ namespace diskann {
       return nullptr;
     } else {
       unsigned location = _tag_to_location[tag];
-      return _data + (size_t) (location * _aligned_dim);
+      return _data + (size_t)(location * _aligned_dim);
     }
   }
 
@@ -570,7 +570,7 @@ namespace diskann {
 #pragma omp parallel for schedule(static, 65536)
     for (_s64 i = 0; i < (_s64) _nd; i++) {
       // extract point and distance reference
-      float   &dist = distances[i];
+      float &  dist = distances[i];
       const T *cur_vec = _data + (i * (size_t) _aligned_dim);
       dist = 0;
       float diff = 0;
@@ -610,9 +610,9 @@ return min_idx;
   std::pair<uint32_t, uint32_t> Index<T, TagT>
       : iterate_to_fixed_point(const T *node_coords, const unsigned Lsize,
                                const std::vector<unsigned> &init_ids,
-                               std::vector<Neighbor>       &expanded_nodes_info,
-                               tsl::robin_set<unsigned>    &expanded_nodes_ids,
-                               std::vector<Neighbor>       &best_L_nodes,
+                               std::vector<Neighbor> &      expanded_nodes_info,
+                               tsl::robin_set<unsigned> &   expanded_nodes_ids,
+                               std::vector<Neighbor> &      best_L_nodes,
                                bool                         ret_frozen) {
     best_L_nodes.resize(Lsize + 1);
     for (unsigned i = 0; i < Lsize + 1; i++) {
@@ -727,7 +727,7 @@ return min_idx;
   template<typename T, typename TagT>
   void Index<T, TagT>::iterate_to_fixed_point(
       const T *node_coords, const unsigned Lindex,
-      std::vector<Neighbor>         &expanded_nodes_info,
+      std::vector<Neighbor> &        expanded_nodes_info,
       tsl::robin_map<uint32_t, T *> &coord_map, bool return_frozen_pt) {
     std::vector<uint32_t> init_ids;
     init_ids.push_back(this->_ep);
@@ -747,9 +747,9 @@ return min_idx;
   void Index<T, TagT>::get_expanded_nodes(
       const size_t node_id, const unsigned Lindex,
       std::vector<unsigned>     init_ids,
-      std::vector<Neighbor>    &expanded_nodes_info,
+      std::vector<Neighbor> &   expanded_nodes_info,
       tsl::robin_set<unsigned> &expanded_nodes_ids) {
-    const T              *node_coords = _data + _aligned_dim * node_id;
+    const T *             node_coords = _data + _aligned_dim * node_id;
     std::vector<Neighbor> best_L_nodes;
 
     if (init_ids.size() == 0)
@@ -774,7 +774,7 @@ return min_idx;
                                     const float alpha, const unsigned degree,
                                     const unsigned         maxc,
                                     std::vector<Neighbor> &result,
-                                    std::vector<float>    &occlude_factor) {
+                                    std::vector<float> &   occlude_factor) {
     if (pool.empty())
       return;
     assert(std::is_sorted(pool.begin(), pool.end()));
@@ -810,7 +810,7 @@ return min_idx;
   template<typename T, typename TagT>
   void Index<T, TagT>::prune_neighbors(const unsigned         location,
                                        std::vector<Neighbor> &pool,
-                                       const Parameters      &parameter,
+                                       const Parameters &     parameter,
                                        std::vector<unsigned> &pruned_list) {
     unsigned range = parameter.Get<unsigned>("R");
     unsigned maxc = parameter.Get<unsigned>("C");
@@ -892,7 +892,7 @@ return min_idx;
   template<typename T, typename TagT>
   void Index<T, TagT>::inter_insert(unsigned               n,
                                     std::vector<unsigned> &pruned_list,
-                                    const Parameters      &parameter,
+                                    const Parameters &     parameter,
                                     bool                   update_in_graph) {
     const auto range = parameter.Get<unsigned>("R");
     assert(n >= 0 && n < _nd + _num_frozen_pts);
@@ -905,13 +905,13 @@ return min_idx;
       /* des.id is the id of the neighbors of n */
       assert(des >= 0 && des < _max_points + _num_frozen_pts);
       /* des_pool contains the neighbors of the neighbors of n */
-      auto                 &des_pool = _final_graph[des];
+      auto &                des_pool = _final_graph[des];
       std::vector<unsigned> copy_of_neighbors;
       bool                  prune_needed = false;
       {
         LockGuard guard(_locks[des]);
         if (std::find(des_pool.begin(), des_pool.end(), n) == des_pool.end()) {
-          if (des_pool.size() < (_u64) (SLACK_FACTOR * range)) {
+          if (des_pool.size() < (_u64)(SLACK_FACTOR * range)) {
             des_pool.emplace_back(n);
             if (update_in_graph) {
               LockGuard guard(_locks_in[n]);
@@ -930,7 +930,7 @@ return min_idx;
         tsl::robin_set<unsigned> dummy_visited(0);
         std::vector<Neighbor>    dummy_pool(0);
 
-        size_t reserveSize = (size_t) (std::ceil(1.05 * SLACK_FACTOR * range));
+        size_t reserveSize = (size_t)(std::ceil(1.05 * SLACK_FACTOR * range));
         dummy_visited.reserve(reserveSize);
         dummy_pool.reserve(reserveSize);
 
@@ -1037,8 +1037,7 @@ return min_idx;
     }
 
     for (uint64_t p = 0; p < _max_points + _num_frozen_pts; p++) {
-      _final_graph[p].reserve(
-          (size_t) (std::ceil(range * SLACK_FACTOR * 1.05)));
+      _final_graph[p].reserve((size_t)(std::ceil(range * SLACK_FACTOR * 1.05)));
     }
 
     std::random_device               rd;
@@ -1126,7 +1125,7 @@ return min_idx;
         }
 
 #pragma omp parallel for schedule(dynamic, 65536)
-        for (_s64 node_ctr = 0; node_ctr < (_s64) (visit_order.size());
+        for (_s64 node_ctr = 0; node_ctr < (_s64)(visit_order.size());
              node_ctr++) {
           auto node = visit_order[node_ctr];
           if (need_to_sync[node] != 0) {
@@ -1195,8 +1194,7 @@ return min_idx;
     }
 
 #pragma omp parallel for schedule(dynamic, 65536)
-    for (_s64 node_ctr = 0; node_ctr < (_s64) (visit_order.size());
-         node_ctr++) {
+    for (_s64 node_ctr = 0; node_ctr < (_s64)(visit_order.size()); node_ctr++) {
       auto node = visit_order[node_ctr];
       if (_final_graph[node].size() > range) {
         tsl::robin_set<unsigned> dummy_visited(0);
@@ -1234,7 +1232,7 @@ return min_idx;
 
     diskann::Timer timer;
 #pragma omp parallel for
-    for (_s64 node = 0; node < (_s64) (_max_points + _num_frozen_pts); node++) {
+    for (_s64 node = 0; node < (_s64)(_max_points + _num_frozen_pts); node++) {
       if ((size_t) node < _nd || (size_t) node == _max_points) {
         if (_final_graph[node].size() > range) {
           tsl::robin_set<unsigned> dummy_visited(0);
@@ -1283,9 +1281,9 @@ return min_idx;
   }
 
   template<typename T, typename TagT>
-  void Index<T, TagT>::build(const char              *filename,
+  void Index<T, TagT>::build(const char *             filename,
                              const size_t             num_points_to_load,
-                             Parameters              &parameters,
+                             Parameters &             parameters,
                              const std::vector<TagT> &tags) {
     if (!file_exists(filename)) {
       diskann::cerr << "Data file " << filename
@@ -1379,7 +1377,7 @@ return min_idx;
   }
 
   template<typename T, typename TagT>
-  void Index<T, TagT>::build(const char  *filename,
+  void Index<T, TagT>::build(const char * filename,
                              const size_t num_points_to_load,
                              Parameters &parameters, const char *tag_filename) {
     if (!file_exists(filename)) {
@@ -1437,7 +1435,7 @@ return min_idx;
           if (file_exists(tag_filename)) {
             diskann::cout << "Loading tags from " << tag_filename
                           << " for vamana index build" << std::endl;
-            TagT  *tag_data = nullptr;
+            TagT * tag_data = nullptr;
             size_t npts, ndim;
             diskann::load_bin(tag_filename, tag_data, npts, ndim);
             if (npts != num_points_to_load) {
@@ -1507,7 +1505,7 @@ return min_idx;
       init_ids.emplace_back(_ep);
     }
 
-    T     *aligned_query;
+    T *    aligned_query;
     size_t allocSize = _aligned_dim * sizeof(T);
     alloc_aligned(((void **) &aligned_query), allocSize, 8 * sizeof(T));
     memset(aligned_query, 0, _aligned_dim * sizeof(T));
@@ -1529,10 +1527,10 @@ return min_idx;
   }
 
   template<typename T, typename TagT>
-  std::pair<uint32_t, uint32_t> Index<T, TagT>::search(const T       *query,
+  std::pair<uint32_t, uint32_t> Index<T, TagT>::search(const T *      query,
                                                        const size_t   K,
                                                        const unsigned L,
-                                                       unsigned      *indices,
+                                                       unsigned *     indices,
                                                        float *distances) {
     std::vector<unsigned>    init_ids;
     tsl::robin_set<unsigned> visited(10 * L);
@@ -1544,7 +1542,7 @@ return min_idx;
     if (init_ids.size() == 0) {
       init_ids.emplace_back(_ep);
     }
-    T     *aligned_query;
+    T *    aligned_query;
     size_t allocSize = _aligned_dim * sizeof(T);
     alloc_aligned(((void **) &aligned_query), allocSize, 8 * sizeof(T));
     memset(aligned_query, 0, _aligned_dim * sizeof(T));
@@ -1581,7 +1579,7 @@ return min_idx;
     if (init_ids.size() == 0) {
       init_ids.emplace_back(_ep);
     }
-    T     *aligned_query;
+    T *    aligned_query;
     size_t allocSize = _aligned_dim * sizeof(T);
     alloc_aligned(((void **) &aligned_query), allocSize, 8 * sizeof(T));
     memset(aligned_query, 0, _aligned_dim * sizeof(T));
@@ -1605,9 +1603,9 @@ return min_idx;
   template<typename T, typename TagT>
   size_t Index<T, TagT>::search_with_tags(const T *query, const uint64_t K,
                                           const unsigned L, TagT *tags,
-                                          float            *distances,
+                                          float *           distances,
                                           std::vector<T *> &res_vectors) {
-    _u32  *indices = new unsigned[L];
+    _u32 * indices = new unsigned[L];
     float *dist_interim = new float[L];
     search(query, L, L, indices, dist_interim);
 
@@ -1634,7 +1632,7 @@ return min_idx;
   size_t Index<T, TagT>::search_with_tags(const T *query, const size_t K,
                                           const unsigned L, TagT *tags,
                                           float *distances) {
-    _u32  *indices = new unsigned[L];
+    _u32 * indices = new unsigned[L];
     float *dist_interim = new float[L];
     search(query, L, L, indices, dist_interim);
 
@@ -1664,7 +1662,7 @@ return min_idx;
   template<typename T, typename TagT>
   T *Index<T, TagT>::get_data() {
     if (_num_frozen_pts > 0) {
-      T     *ret_data = nullptr;
+      T *    ret_data = nullptr;
       size_t allocSize = _nd * _aligned_dim * sizeof(T);
       alloc_aligned(((void **) &ret_data), allocSize, 8 * sizeof(T));
       memset(ret_data, 0, _nd * _aligned_dim * sizeof(T));
@@ -1960,8 +1958,8 @@ return min_idx;
       std::vector<Neighbor>    result;
 
       for (_s64 i = block * block_size;
-           i < (_s64) ((block + 1) * block_size) &&
-           i < (_s64) (_max_points + _num_frozen_pts);
+           i < (_s64)((block + 1) * block_size) &&
+           i < (_s64)(_max_points + _num_frozen_pts);
            i++) {
         if ((_delete_set.find((_u32) i) == _delete_set.end()) &&
             (_empty_slots.find((_u32) i) == _empty_slots.end())) {
@@ -2423,7 +2421,7 @@ return min_idx;
       std::cout << "Thread: " << std::this_thread::get_id()
                 << " Obtained unique_lock. " << std::endl;
       if (_nd >= _max_points) {
-        auto new_max_points = (size_t) (_max_points * INDEX_GROWTH_FACTOR);
+        auto new_max_points = (size_t)(_max_points * INDEX_GROWTH_FACTOR);
         diskann::cerr << "Thread: " << std::this_thread::get_id()
                       << ": Increasing _max_points from " << _max_points
                       << " to " << new_max_points << " _nd is: " << _nd
@@ -2486,7 +2484,7 @@ return min_idx;
 
     _final_graph[location].clear();
     _final_graph[location].shrink_to_fit();
-    _final_graph[location].reserve((_u64) (range * SLACK_FACTOR * 1.05));
+    _final_graph[location].reserve((_u64)(range * SLACK_FACTOR * 1.05));
 
     if (pruned_list.empty()) {
       std::cout << "Thread: " << std::this_thread::get_id() << "Tag id: " << tag
@@ -2551,7 +2549,7 @@ return min_idx;
   // TODO: Check if this function needs a shared_lock on _tag_lock.
   template<typename T, typename TagT>
   int Index<T, TagT>::lazy_delete(const tsl::robin_set<TagT> &tags,
-                                  std::vector<TagT>          &failed_tags) {
+                                  std::vector<TagT> &         failed_tags) {
     if (failed_tags.size() > 0) {
       std::cerr << "failed_tags should be passed as an empty list" << std::endl;
       return -3;
@@ -2589,7 +2587,7 @@ return min_idx;
       return -1;
     }
     std::memset(ret_data, 0, (size_t) _aligned_dim * _nd * sizeof(T));
-    std::memcpy(ret_data, _data, (size_t) (_aligned_dim) *_nd * sizeof(T));
+    std::memcpy(ret_data, _data, (size_t)(_aligned_dim) *_nd * sizeof(T));
     tag_to_location = _tag_to_location;
     return 0;
   }

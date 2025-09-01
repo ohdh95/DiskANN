@@ -249,14 +249,14 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
   if (calRecall) {
     if (merged) {
       std::string cur_result_path =
-          "/data/linsy/Cout/overall_res/"
+          "/home/ohdh95/update/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + "merged.bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,
                           query_result_dists, query_num, recall_at);
     } else {
       std::string cur_result_path =
-          "/data/linsy/Cout/overall_res/"
+          "/home/ohdh95/update/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + ".bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,
@@ -513,7 +513,7 @@ void update(const std::string& data_path, const unsigned L_mem,
 
   std::cout << "Searching before inserts: " << std::endl;
   tsl::robin_set<TagT> inactive_tags;
-  // truthset_file="/data/linsy/dataset/deep/gt/deep_gt_K10_"
+  // truthset_file="/home/ohdh95/update/dataset/deep/gt/deep_gt_K10_"
   std::string currentFileName = truthset_file + std::to_string(0) + ".fbin";
   std::cout << "Current_GT_File: " << currentFileName << std::endl;
   begin_time = globalTimer.elapsed() / 1.0e6f;
