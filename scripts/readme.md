@@ -16,7 +16,7 @@ In this step, we generate the update trace for each iteration, the base 95% vect
 
 In this step, we build the `index_R32` and `index_R34` (i.e., 33/34) index files.  
 - The directory `./scripts/indices/sift_R32/disk_init` contains 6 files.  
-- The directory `./scripts/indices/sift_R34/disk_init` contains 7 files (including the topology file):`_index_disk.index`, `_index_disk.index.tags`, `_index_disk.index_with_only_nbrs`, `_index_pq_compressed.bin`,  `_index_pq_pivots.bin`,  `_index_sample_data.bin`, `_index_sample_ids.bin`.
+- The directory `./scripts/indices/sift_R34/disk_init` contains 7 files (including the topology file):`_index_disk.index`, `_index_disk.index.tags`, `_index_disk.index.index_with_only_nbrs`, `_index_pq_compressed.bin`,  `_index_pq_pivots.bin`,  `_index_sample_data.bin`, `_index_sample_ids.bin`.
 
 ---
 

@@ -249,14 +249,14 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
   if (calRecall) {
     if (merged) {
       std::string cur_result_path =
-          "/home/ohdh95/update/Cout/overall_res/"
+          "/home/ohdh95/work/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + "merged.bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,
                           query_result_dists, query_num, recall_at);
     } else {
       std::string cur_result_path =
-          "/home/ohdh95/update/Cout/overall_res/"
+          "/home/ohdh95/work/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + ".bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,

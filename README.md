@@ -1,3 +1,18 @@
+1. git clone -b update git@github.com:ohdh95/DiskANN.git
+2. cd DiskANN
+3. mkdir build
+4. mkdir run
+5. cd build
+6. cmake .. -DCMAKE_CXX_FLAGS="-I/usr/include/mkl"
+7. cd ../scripts && mkdir dataset && cd dataset
+8. cp ~/sift.tar.gz ./
+9. tar -xvf sift.tar.gz
+10. cd ..
+11. mkdir ./dataset
+12. mkdir ./indices
+13. mkdir ./trace
+14. mkdir indices/sift_R32/disk_init
+
 # Greator
 
 Greator is a system that supports large amounts of vector search and small batch update (deletion and insertion), with priority on update performance and search accuracy. The system is based on FreshDiskANN[1-3], and introduces a topology-aware local update strategy for graph-based ANN index for the first time, greatly improving update performance while ensuring high search accuracy. This code is forked from [code for DiskANN](https://github.com/microsoft/DiskANN)[4] algorithm.

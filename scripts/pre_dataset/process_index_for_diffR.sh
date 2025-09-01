@@ -4,8 +4,8 @@ g++ process_index_for_diffR.cpp -o pifdr
 dataset=sift
 old_R=32
 new_R=34
-old_prefix=/home/ohdh95/update/Greator/scripts/indices/"$dataset"_R"$old_R"
-new_prefix=/home/ohdh95/update/Greator/scripts/indices/"$dataset"_R"$new_R"
+old_prefix=/home/ohdh95/work/DiskANN/scripts/indices/"$dataset"_R"$old_R"
+new_prefix=/home/ohdh95/work/DiskANN/scripts/indices/"$dataset"_R"$new_R"
 
 mkdir $new_prefix 
 mkdir $new_prefix/disk_init/

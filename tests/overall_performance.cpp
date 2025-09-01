@@ -220,14 +220,14 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
   if (calRecall) {
     if (merged) {
       std::string cur_result_path =
-          "/home/ohdh95/update/Cout/overall_res/"
+          "/home/ohdh95/work/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + "merged.bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,
                           query_result_dists, query_num, recall_at);
     } else {
       std::string cur_result_path =
-          "/home/ohdh95/update/Cout/overall_res/"
+          "/home/ohdh95/work/Cout/overall_res/"
           "result_overall_diskann" +
           std::to_string(current_time) + ".bin";
       save_bin_test<TagT>(cur_result_path, query_result_tags,
@@ -526,9 +526,9 @@ void update(const std::string& data_path, const unsigned L_mem,
         truthset_file + std::to_string(i + 1) + ".fbin";
     std::cout << "Current_GT_File: " << currentFileName << std::endl;
     // if ((i + 1) % 10 == 0)
-      sync_search_kernel(query, query_num, query_aligned_dim, recall_at,
-                         Lsearch, sync_index, currentFileName, inactive_tags,
-                         res, true, true);
+    sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
+                       sync_index, currentFileName, inactive_tags, res, true,
+                       true);
   }
   std::cout << "Update over" << std::endl;
   delete[] data_load;

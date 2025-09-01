@@ -1,6 +1,6 @@
 
 clear
-project_dir=/home/ohdh95/update/Greator
+project_dir=/home/ohdh95/work/DiskANN
 id_map=2
 delete_dir="$project_dir/scripts/indices/sift_R34"
 batchsize=0.001
@@ -12,11 +12,11 @@ rm -r "$delete_dir"/_index_temp
 mkdir "$delete_dir"/_index_temp
 
 
-cd /home/ohdh95/update/Greator/build && make -j 
-cd /home/ohdh95/update/Greator/run
+cd /home/ohdh95/work/DiskANN/build && make -j 
+cd /home/ohdh95/work/DiskANN/run
 
 name=sift
-mydir="/home/ohdh95/update/Greator/scripts"
+mydir="/home/ohdh95/work/DiskANN/scripts"
 index_type="float"
 base_data_file="$mydir"/dataset/"$name"/"$name"_base_95.fbin
 L_mem=75

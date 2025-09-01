@@ -562,7 +562,7 @@ namespace diskann {
           sector_with_deleted_nbrs_nodes;
 
       std::string indir =
-          this->disk_index_in_path + "_disk.index_with_only_nbrs";
+          this->disk_index_in_path + "_disk.index.index_with_only_nbrs";
 
       get_sector_with_deleted_nbrs_nodes(indir, sector_with_deleted_nbrs_nodes);
       std::cout << "sector_with_deleted_nbrs_nodes size: "

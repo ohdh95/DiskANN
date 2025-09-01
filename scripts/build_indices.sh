@@ -1,10 +1,10 @@
-project_dir=/home/ohdh95/update/Greator
+project_dir=/home/ohdh95/work/DiskANN
 # Part1: build_disk_index_R32 for FreshDiskANN
 
 dataset=sift
 cindir="$project_dir"/scripts/dataset/"$dataset"/"$dataset"_base_95.fbin
 coutdir="$project_dir"/scripts/indices/"$dataset"_R32/disk_init
-mkdir $coutdir
+mkdir -p $coutdir
 cd "$project_dir"/build && make -j
 # cd "$project_dir"/run
 
