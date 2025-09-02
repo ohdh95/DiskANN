@@ -102,7 +102,6 @@ namespace diskann {
     uint64_t _beamwidth;
     std::vector<uint32_t> id_disk_map;
 
->>>>>>> 9b09e96... id_disk_map 사용해서 search 가능
     std::unordered_map<unsigned, TagT> curr_location_to_tag;
 
     std::shared_ptr<Index<T, TagT>>    _mem_index_0 = nullptr;
