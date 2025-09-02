@@ -131,10 +131,10 @@ namespace diskann {
     // setting up thread-specific data
 
     // implemented
-    DISKANN_DLLEXPORT size_t
-    cached_beam_search(const T *query, const _u64 k_search, const _u64 l_search,
-                       TagT *res_tags, float *res_dists, const _u64 beam_width,
-                       QueryStats *stats = nullptr);
+    DISKANN_DLLEXPORT size_t cached_beam_search(
+        const T *query, const _u64 k_search, const _u64 l_search,
+        TagT *res_tags, float *res_dists, const _u64 beam_width,
+        QueryStats *stats = nullptr, std::vector<uint32_t> id_disk_map = {});
 
     DISKANN_DLLEXPORT size_t cached_beam_search_ids(
         const T *query, const _u64 k_search, const _u64 l_search,
@@ -154,7 +154,8 @@ namespace diskann {
         std::vector<Neighbor> &        expanded_nodes_info,
         tsl::robin_map<uint32_t, T *> *coord_map = nullptr,
         QueryStats *stats = nullptr, ThreadData<T> *passthrough_data = nullptr,
-        tsl::robin_set<uint32_t> *exclude_nodes = nullptr);
+        tsl::robin_set<uint32_t> *exclude_nodes = nullptr,
+        std::vector<uint32_t>     id_disk_map = {});
     std::vector<uint32_t> get_init_ids() {
       return std::vector<uint32_t>(this->medoids,
                                    this->medoids + this->num_medoids);
