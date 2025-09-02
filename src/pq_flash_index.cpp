@@ -978,466 +978,871 @@ namespace diskann {
       tsl::robin_map<uint32_t, T *> *coord_map, QueryStats *stats,
       ThreadData<T> *passthrough_data, tsl::robin_set<uint32_t> *exclude_nodes,
       std::vector<uint32_t> id_disk_map) {
-    // coord_map 비어있음
     // only pull from sector scratch if ThreadData<T> not passed as arg
-    // std::cout << "id_disk_map size: " << id_disk_map.size() << std::endl;
-    auto          diskSearchBegin = std::chrono::high_resolution_clock::now();
-    ThreadData<T> data;
-    if (passthrough_data == nullptr) {
-      data = this->thread_data.pop();
-      while (data.scratch.sector_scratch == nullptr) {
-        this->thread_data.wait_for_push_notify();
+    if (id_disk_map.size() == 0) {
+      auto          diskSearchBegin = std::chrono::high_resolution_clock::now();
+      ThreadData<T> data;
+      if (passthrough_data == nullptr) {
         data = this->thread_data.pop();
+        while (data.scratch.sector_scratch == nullptr) {
+          this->thread_data.wait_for_push_notify();
+          data = this->thread_data.pop();
+        }
+
+      } else {
+        data = *passthrough_data;
       }
 
-    } else {
-      data = *passthrough_data;
-    }
+      if (data_is_normalized) {
+        std::cout << "data_is_normalized start" << std::endl;
+        // Data has been normalized. Normalize search vector too.
+        float norm = diskann::compute_l2_norm(query1, this->data_dim);
+        for (uint32_t i = 0; i < this->data_dim; i++) {
+          data.scratch.aligned_query_float[i] = query1[i] / norm;
+        }
+        for (uint32_t i = 0; i < this->data_dim; i++) {
+          data.scratch.aligned_query_T[i] =
+              (T) data.scratch.aligned_query_float[i];
+        }
+        std::cout << "data_is_normalized end" << std::endl;
+      } else {
+        for (uint32_t i = 0; i < this->data_dim; i++) {
+          data.scratch.aligned_query_float[i] = query1[i];
+        }
 
-    // 일단 패스
-    if (data_is_normalized) {
-      std::cout << "data_is_normalized start" << std::endl;
-      // Data has been normalized. Normalize search vector too.
-      float norm = diskann::compute_l2_norm(query1, this->data_dim);
-      for (uint32_t i = 0; i < this->data_dim; i++) {
-        data.scratch.aligned_query_float[i] = query1[i] / norm;
+        memcpy(data.scratch.aligned_query_T, query1,
+               this->data_dim * sizeof(T));
       }
-      for (uint32_t i = 0; i < this->data_dim; i++) {
-        data.scratch.aligned_query_T[i] =
-            (T) data.scratch.aligned_query_float[i];
+      const T *    query = data.scratch.aligned_query_T;
+      const float *query_float = data.scratch.aligned_query_float;
+
+      IOContext &ctx = data.ctx;
+      auto       query_scratch = &(data.scratch);
+
+      // reset query
+      query_scratch->reset();
+
+      // scratch space to compute distances between FP32 Query and INT8 data
+      float *scratch = query_scratch->aligned_scratch;
+      _mm_prefetch((char *) scratch, _MM_HINT_T0);
+
+      // pointers to buffers for data
+      T *   data_buf = query_scratch->coord_scratch;
+      _u64 &data_buf_idx = query_scratch->coord_idx;
+      _mm_prefetch((char *) data_buf, _MM_HINT_T1);
+
+      // sector scratch
+      char *sector_scratch = query_scratch->sector_scratch;
+      _u64 &sector_scratch_idx = query_scratch->sector_idx;
+
+      // query <-> PQ chunk centers distances
+      float *pq_dists = query_scratch->aligned_pqtable_dist_scratch;
+      pq_table.populate_chunk_distances(query, pq_dists);
+
+      // query <-> neighbor list
+      float *dist_scratch = query_scratch->aligned_dist_scratch;
+      _u8 *  pq_coord_scratch = query_scratch->aligned_pq_coord_scratch;
+
+      // lambda to batch compute query<-> node distances in PQ space
+      auto compute_dists = [this, pq_coord_scratch, pq_dists](
+                               const unsigned *ids, const _u64 n_ids,
+                               float *dists_out) {
+        ::aggregate_coords(ids, n_ids, this->data, this->n_chunks,
+                           pq_coord_scratch);
+        ::pq_dist_lookup(pq_coord_scratch, n_ids, this->n_chunks, pq_dists,
+                         dists_out);
+      };
+
+      Timer query_timer, io_timer, cpu_timer;
+
+      std::vector<Neighbor> retset;
+
+      retset.resize(l_search + 1);
+
+      tsl::robin_set<_u64> visited(4096);
+      // tsl::robin_set<_u64> visited;
+
+      // re-naming `expanded_nodes_info` to not change rest of the code
+      std::vector<Neighbor> &full_retset = expanded_nodes_info;
+      full_retset.reserve(4096);
+
+      _u32  best_medoid = 0;
+      float best_dist = (std::numeric_limits<float>::max)();
+      std::vector<SimpleNeighbor> medoid_dists;
+      for (_u64 cur_m = 0; cur_m < num_medoids; cur_m++) {
+        float cur_expanded_dist = dist_cmp_float->compare(
+            query_float, centroid_data + aligned_dim * cur_m,
+            (unsigned) aligned_dim);
+        if (cur_expanded_dist < best_dist) {
+          best_medoid = medoids[cur_m];
+          best_dist = cur_expanded_dist;
+        }
       }
-      std::cout << "data_is_normalized end" << std::endl;
+      compute_dists(&best_medoid, 1, dist_scratch);
+      retset[0].id = best_medoid;
+      retset[0].distance = dist_scratch[0];
+      retset[0].flag = true;
+      visited.insert(best_medoid);
+      unsigned cur_list_size = 1;
+
+      std::sort(retset.begin(), retset.begin() + cur_list_size);
+
+      unsigned cmps = 0;
+      unsigned hops = 0;
+      unsigned num_ios = 0;
+      unsigned k = 0;
+
+      // cleared every iteration
+      std::vector<unsigned>                    frontier;
+      std::vector<std::pair<unsigned, char *>> frontier_nhoods;
+      std::vector<AlignedRead>                 frontier_read_reqs;
+      std::vector<std::pair<unsigned, std::pair<unsigned, unsigned *>>>
+          cached_nhoods;
+
+      while (k < cur_list_size && num_ios < IO_LIMIT) {
+        auto nk = cur_list_size;
+        // clear iteration state
+        frontier.clear();
+        frontier_nhoods.clear();
+        frontier_read_reqs.clear();
+        cached_nhoods.clear();
+        sector_scratch_idx = 0;
+        // find new beam
+        // WAS: _u64 marker = k - 1;
+        _u32 marker = k;
+        _u32 num_seen = 0;
+        while (marker < cur_list_size && frontier.size() < beam_width &&
+               num_seen < beam_width) {
+          if (retset[marker].flag) {
+            num_seen++;
+            auto iter = nhood_cache.find(retset[marker].id);
+            if (iter != nhood_cache.end()) {
+              cached_nhoods.push_back(
+                  std::make_pair(retset[marker].id, iter->second));
+              if (stats != nullptr) {
+                stats->n_cache_hits++;
+              }
+            } else {
+              frontier.push_back(retset[marker].id);
+            }
+            retset[marker].flag = false;
+            if (this->count_visited_nodes) {
+              reinterpret_cast<std::atomic<_u32> &>(
+                  this->node_visit_counter[retset[marker].id].second)
+                  .fetch_add(1);
+            }
+          }
+          marker++;
+        }
+
+        // read nhoods of frontier ids
+        if (!frontier.empty()) {
+          if (stats != nullptr)
+            stats->n_hops++;
+
+          std::vector<uint32_t> lock_pageid;
+          for (_u64 i = 0; i < frontier.size(); i++) {
+            auto                    id = frontier[i];
+            std::pair<_u32, char *> fnhood;
+            fnhood.first = id;
+            fnhood.second = sector_scratch + sector_scratch_idx * SECTOR_LEN;
+            sector_scratch_idx++;
+            frontier_nhoods.push_back(fnhood);
+            uint32_t pageid = 1 + id / this->nnodes_per_sector;
+            lock_pageid.push_back(pageid);
+            frontier_read_reqs.emplace_back(
+                NODE_SECTOR_NO(((size_t) id)) * SECTOR_LEN, SECTOR_LEN,
+                fnhood.second);
+
+            if (stats != nullptr) {
+              stats->n_4k++;
+              stats->n_ios++;
+            }
+            num_ios++;
+          }
+          io_timer.reset();
+          // 开启读锁
+          for (auto &pageid : lock_pageid) {
+            CASRWLock *pmutex = &pagemutex[pageid];
+            pmutex->ReadLock();
+          }
+#ifdef USE_BING_INFRA
+          reader->read(frontier_read_reqs, ctx, true);  // async reader windows.
+#else
+          reader->read(frontier_read_reqs, ctx, false);  // synchronous IO linux
+#endif
+
+          // 结束读锁
+          for (auto &pageid : lock_pageid) {
+            CASRWLock *pmutex = &pagemutex[pageid];
+            pmutex->ReadUnLock();
+          }
+          if (stats != nullptr) {
+            stats->io_us += (double) io_timer.elapsed();
+          }
+        }
+
+        // process cached nhoods
+        for (auto &cached_nhood : cached_nhoods) {
+          auto global_cache_iter = coord_cache.find(cached_nhood.first);
+          T *  node_fp_coords = global_cache_iter->second;
+          T *  node_fp_coords_copy = data_buf + (data_buf_idx * aligned_dim);
+          data_buf_idx++;
+          memcpy(node_fp_coords_copy, node_fp_coords, data_dim * sizeof(T));
+          float cur_expanded_dist = dist_cmp->compare(
+              query, node_fp_coords_copy, (unsigned) aligned_dim);
+          bool exclude_cur_node = false;
+          if (exclude_nodes != nullptr) {
+            exclude_cur_node = (exclude_nodes->find(cached_nhood.first) !=
+                                exclude_nodes->end());
+          }
+          // only figure in final list if
+          if (!exclude_cur_node) {
+            // added for StreamingMerger calls
+            if (coord_map != nullptr) {
+              coord_map->insert(
+                  std::make_pair(cached_nhood.first, node_fp_coords_copy));
+            }
+            full_retset.push_back(Neighbor((unsigned) cached_nhood.first,
+                                           cur_expanded_dist, true));
+            // std::cout << "Node #" << cached_nhood.first
+            //           << " 's dist: " << cur_expanded_dist << std::endl;
+          }
+          _u64      nnbrs = cached_nhood.second.first;
+          unsigned *node_nbrs = cached_nhood.second.second;
+
+          // compute node_nbrs <-> query dists in PQ space
+          cpu_timer.reset();
+          compute_dists(node_nbrs, nnbrs, dist_scratch);
+          if (stats != nullptr) {
+            stats->n_cmps += (double) nnbrs;
+            stats->cpu_us += (double) cpu_timer.elapsed();
+          }
+
+          // process prefetched nhood
+          for (_u64 m = 0; m < nnbrs; ++m) {
+            unsigned id = node_nbrs[m];
+            if (visited.find(id) != visited.end()) {
+              continue;
+            } else {
+              visited.insert(id);
+              cmps++;
+              float dist = dist_scratch[m];
+              // diskann::cout << "cmp: " << id << ", dist: " << dist <<
+              // std::endl; std::cerr << "dist: " << dist << std::endl;
+              if (dist >= retset[cur_list_size - 1].distance &&
+                  (cur_list_size == l_search))
+                continue;
+              Neighbor nn(id, dist, true);
+              auto     r = InsertIntoPool(
+                  retset.data(), cur_list_size,
+                  nn);  // Return position in sorted list where nn inserted.
+              if (cur_list_size < l_search)
+                ++cur_list_size;
+              if (r < nk)
+                nk = r;  // nk logs the best position in the retset that was
+              // updated
+              // due to neighbors of n.
+            }
+          }
+        }
+#ifdef USE_BING_INFRA
+        // process each frontier nhood - compute distances to unvisited nodes
+        int completedIndex = -1;
+        // If we issued read requests and if a read is complete or there are
+        // reads in wait state, then enter the while loop.
+        while (frontier_read_reqs.size() > 0 &&
+               getNextCompletedRequest(ctx, frontier_read_reqs.size(),
+                                       completedIndex)) {
+          if (completedIndex == -1) {  // all reads are waiting
+            continue;
+          }
+          auto &frontier_nhood = frontier_nhoods[completedIndex];
+          (*ctx.m_pRequestsStatus)[completedIndex] =
+              IOContext::PROCESS_COMPLETE;
+#else
+
+        for (auto &frontier_nhood : frontier_nhoods) {
+#endif
+          char *node_disk_buf =
+              OFFSET_TO_NODE(frontier_nhood.second, frontier_nhood.first);
+          unsigned *node_buf = OFFSET_TO_NODE_NHOOD(node_disk_buf);
+          _u64      nnbrs = (_u64)(*node_buf);
+          T *       node_fp_coords = OFFSET_TO_NODE_COORDS(node_disk_buf);
+          assert(data_buf_idx < MAX_N_CMPS);
+
+          T *node_fp_coords_copy = data_buf + (data_buf_idx * aligned_dim);
+          data_buf_idx++;
+          memcpy(node_fp_coords_copy, node_fp_coords, data_dim * sizeof(T));
+          float cur_expanded_dist = dist_cmp->compare(
+              query, node_fp_coords_copy, (unsigned) aligned_dim);
+          bool exclude_cur_node = false;
+          if (exclude_nodes != nullptr) {
+            exclude_cur_node = (exclude_nodes->find(frontier_nhood.first) !=
+                                exclude_nodes->end());
+          }
+          // if node is to be excluded from final search results
+          if (!exclude_cur_node) {
+            // added for StreamingMerger calls
+            if (coord_map != nullptr) {
+              coord_map->insert(
+                  std::make_pair(frontier_nhood.first, node_fp_coords_copy));
+            }
+            full_retset.push_back(
+                Neighbor(frontier_nhood.first, cur_expanded_dist, true));
+            // std::cout << "Node #" << frontier_nhood.first
+            //           << " 's dist: " << cur_expanded_dist << std::endl;
+          }
+          unsigned *node_nbrs = (node_buf + 1);
+          // compute node_nbrs <-> query dist in PQ space
+          cpu_timer.reset();
+          compute_dists(node_nbrs, nnbrs, dist_scratch);
+          if (stats != nullptr) {
+            stats->n_cmps += (double) nnbrs;
+            stats->cpu_us += (double) cpu_timer.elapsed();
+          }
+
+          cpu_timer.reset();
+          // process prefetch-ed nhood
+          for (_u64 m = 0; m < nnbrs; ++m) {
+            unsigned id = node_nbrs[m];
+            if (visited.find(id) != visited.end()) {
+              continue;
+            } else {
+              visited.insert(id);
+              cmps++;
+              float dist = dist_scratch[m];
+              if (stats != nullptr) {
+                stats->n_cmps++;
+              }
+              if (dist >= retset[cur_list_size - 1].distance &&
+                  (cur_list_size == l_search))
+                continue;
+              Neighbor nn(id, dist, true);
+              auto     r = InsertIntoPool(
+                  retset.data(), cur_list_size,
+                  nn);  // Return position in sorted list where nn inserted.
+              if (cur_list_size < l_search)
+                ++cur_list_size;
+              if (r < nk)
+                nk = r;  // nk logs the best position in the retset that was
+                         // updated
+                         // due to neighbors of n.
+            }
+          }
+
+          if (stats != nullptr) {
+            stats->cpu_us += (double) cpu_timer.elapsed();
+          }
+        }
+
+        // update best inserted position
+        //
+
+        if (nk <= k)
+          k = nk;  // k is the best position in retset updated in this round.
+        else
+          ++k;
+
+        hops++;
+        if (stats != nullptr && stats->n_current_used != 0) {
+          auto   diskSearchEnd = std::chrono::high_resolution_clock::now();
+          double elapsedSeconds =
+              std::chrono::duration_cast<std::chrono::milliseconds>(
+                  diskSearchEnd - diskSearchBegin)
+                  .count();
+          // if (elapsedSeconds >= stats->n_current_used)
+          //   break;
+        }
+      }
+
+      // re-sort by distance
+      std::sort(full_retset.begin(), full_retset.end(),
+                [](const Neighbor &left, const Neighbor &right) {
+                  return left.distance < right.distance;
+                });
+      // std::cout << "Full retset size: " << full_retset.size() << std::endl;
+      // for (auto &ind : full_retset) {
+      //   std::cout << ind.id << " " << ind.distance << std::endl;
+      // }
+      // return data to ConcurrentQueue only if popped from it
+      if (passthrough_data == nullptr) {
+        this->thread_data.push(data);
+        this->thread_data.push_notify_all();
+      }
+
+      if (stats != nullptr) {
+        stats->total_us = (double) query_timer.elapsed();
+      }
     }
 
     else {
-      // data.scratch.aligned_query_float, data.scratch.aligned_query_T에 query1
-      // 복사
-      for (uint32_t i = 0; i < this->data_dim; i++) {
-        data.scratch.aligned_query_float[i] = query1[i];
+      // coord_map 비어있음
+      // only pull from sector scratch if ThreadData<T> not passed as arg
+      // std::cout << "id_disk_map size: " << id_disk_map.size() << std::endl;
+      auto          diskSearchBegin = std::chrono::high_resolution_clock::now();
+      ThreadData<T> data;
+      if (passthrough_data == nullptr) {
+        data = this->thread_data.pop();
+        while (data.scratch.sector_scratch == nullptr) {
+          this->thread_data.wait_for_push_notify();
+          data = this->thread_data.pop();
+        }
+
+      } else {
+        data = *passthrough_data;
       }
 
-      memcpy(data.scratch.aligned_query_T, query1, this->data_dim * sizeof(T));
-    }
-    const T *    query = data.scratch.aligned_query_T;
-    const float *query_float = data.scratch.aligned_query_float;
-
-    IOContext &ctx = data.ctx;
-    auto       query_scratch = &(data.scratch);
-
-    // reset query
-    query_scratch->reset();
-
-    // scratch space to compute distances between FP32 Query and INT8 data
-    float *scratch = query_scratch->aligned_scratch;
-    _mm_prefetch((char *) scratch, _MM_HINT_T0);
-
-    // pointers to buffers for data
-    T *   data_buf = query_scratch->coord_scratch;
-    _u64 &data_buf_idx = query_scratch->coord_idx;
-    _mm_prefetch((char *) data_buf, _MM_HINT_T1);
-
-    // sector scratch
-    char *sector_scratch = query_scratch->sector_scratch;
-    _u64 &sector_scratch_idx = query_scratch->sector_idx;
-
-    // query <-> PQ chunk centers distances
-    // pq_dists에 쿼리의 각 청크과 256개의 pq 중심점과의 거리 저장, output =
-    // [dist(chunk1, centroid1_1), dist(chunk1, centroid1_2), ...dist(chunk1,
-    // centroid1_256), dist(chunk2, centroid2_1), ...dist(chunk2,
-    // centroid2_256), ... dist(chunk32, centroid32_256)]
-    float *pq_dists = query_scratch->aligned_pqtable_dist_scratch;
-    pq_table.populate_chunk_distances(query, pq_dists);
-
-    // query <-> neighbor list
-    float *dist_scratch = query_scratch->aligned_dist_scratch;
-    _u8 *  pq_coord_scratch = query_scratch->aligned_pq_coord_scratch;
-
-    // lambda to batch compute query<-> node distances in PQ space
-    // 필요 예상
-    auto compute_dists = [this, pq_coord_scratch, pq_dists](const unsigned *ids,
-                                                            const _u64 n_ids,
-                                                            float *dists_out) {
-      ::aggregate_coords(
-          ids, n_ids, this->data, this->n_chunks,
-          pq_coord_scratch);  // id에 해당하는 pq 압축된 벡터(가장 가까운
-                              // centorid id dim개) pq_coord_scratch에 저장
-      ::pq_dist_lookup(
-          pq_coord_scratch, n_ids, this->n_chunks, pq_dists,
-          dists_out);  // dists_out에 쿼리와 해당 점들의 거리 계산 결과
-    };
-
-    Timer query_timer, io_timer, cpu_timer;
-
-    std::vector<Neighbor> retset;
-
-    retset.resize(l_search + 1);
-
-    tsl::robin_set<_u64> visited(4096);
-    // tsl::robin_set<_u64> visited;
-
-    // re-naming `expanded_nodes_info` to not change rest of the code
-    std::vector<Neighbor> &full_retset = expanded_nodes_info;
-    full_retset.reserve(4096);
-
-    _u32  best_medoid = 0;
-    float best_dist = (std::numeric_limits<float>::max)();  // float의 최대값
-    std::vector<SimpleNeighbor> medoid_dists;
-    for (_u64 cur_m = 0; cur_m < num_medoids; cur_m++) {
-      float cur_expanded_dist = dist_cmp_float->compare(
-          query_float, centroid_data + aligned_dim * cur_m,
-          (unsigned) aligned_dim);
-      if (cur_expanded_dist < best_dist) {
-        best_medoid = medoids[cur_m];
-        best_dist = cur_expanded_dist;
+      // 일단 패스
+      if (data_is_normalized) {
+        std::cout << "data_is_normalized start" << std::endl;
+        // Data has been normalized. Normalize search vector too.
+        float norm = diskann::compute_l2_norm(query1, this->data_dim);
+        for (uint32_t i = 0; i < this->data_dim; i++) {
+          data.scratch.aligned_query_float[i] = query1[i] / norm;
+        }
+        for (uint32_t i = 0; i < this->data_dim; i++) {
+          data.scratch.aligned_query_T[i] =
+              (T) data.scratch.aligned_query_float[i];
+        }
+        std::cout << "data_is_normalized end" << std::endl;
       }
-    }
-    compute_dists(&best_medoid, 1, dist_scratch);
-    retset[0].id = best_medoid;
-    retset[0].distance = dist_scratch[0];
-    retset[0].flag = true;
-    visited.insert(best_medoid);
-    unsigned cur_list_size = 1;
 
-    std::sort(retset.begin(), retset.begin() + cur_list_size);
+      else {
+        // data.scratch.aligned_query_float, data.scratch.aligned_query_T에
+        // query1 복사
+        for (uint32_t i = 0; i < this->data_dim; i++) {
+          data.scratch.aligned_query_float[i] = query1[i];
+        }
 
-    unsigned cmps = 0;
-    unsigned hops = 0;
-    unsigned num_ios = 0;
-    unsigned k = 0;
+        memcpy(data.scratch.aligned_query_T, query1,
+               this->data_dim * sizeof(T));
+      }
+      const T *    query = data.scratch.aligned_query_T;
+      const float *query_float = data.scratch.aligned_query_float;
 
-    // cleared every iteration
-    std::vector<unsigned>                    frontier;
-    std::vector<std::pair<unsigned, char *>> frontier_nhoods;
-    std::vector<AlignedRead>                 frontier_read_reqs;
-    std::vector<std::pair<unsigned, std::pair<unsigned, unsigned *>>>
-        cached_nhoods;
+      IOContext &ctx = data.ctx;
+      auto       query_scratch = &(data.scratch);
 
-    while (k < cur_list_size && num_ios < IO_LIMIT) {
-      auto nk = cur_list_size;
-      // clear iteration state
-      frontier.clear();
-      frontier_nhoods.clear();
-      frontier_read_reqs.clear();
-      cached_nhoods.clear();
-      sector_scratch_idx = 0;
-      // find new beam
-      // WAS: _u64 marker = k - 1;
-      _u32 marker = k;
-      _u32 num_seen = 0;
-      // beam search node 찾기
-      // retset은 sort 되어있는 듯... 확인 필요
-      while (marker < cur_list_size && frontier.size() < beam_width &&
-             num_seen < beam_width) {
-        if (retset[marker].flag) {
-          num_seen++;
-          // nhood_cache: <id,<hood_num,vector_hood>>
-          if (id_disk_map[retset[marker].id] != retset[marker].id) {
-            std::cout << "비이이이이이이사아아아아앙:retset[marker].id"
-                      << std::endl;
-          }
-          auto iter = nhood_cache.find(id_disk_map[retset[marker].id]);
-          if (iter != nhood_cache.end()) {
-            cached_nhoods.push_back(
-                std::make_pair(id_disk_map[retset[marker].id], iter->second));
-            if (stats != nullptr) {
-              stats->n_cache_hits++;
+      // reset query
+      query_scratch->reset();
+
+      // scratch space to compute distances between FP32 Query and INT8 data
+      float *scratch = query_scratch->aligned_scratch;
+      _mm_prefetch((char *) scratch, _MM_HINT_T0);
+
+      // pointers to buffers for data
+      T *   data_buf = query_scratch->coord_scratch;
+      _u64 &data_buf_idx = query_scratch->coord_idx;
+      _mm_prefetch((char *) data_buf, _MM_HINT_T1);
+
+      // sector scratch
+      char *sector_scratch = query_scratch->sector_scratch;
+      _u64 &sector_scratch_idx = query_scratch->sector_idx;
+
+      // query <-> PQ chunk centers distances
+      // pq_dists에 쿼리의 각 청크과 256개의 pq 중심점과의 거리 저장, output =
+      // [dist(chunk1, centroid1_1), dist(chunk1, centroid1_2), ...dist(chunk1,
+      // centroid1_256), dist(chunk2, centroid2_1), ...dist(chunk2,
+      // centroid2_256), ... dist(chunk32, centroid32_256)]
+      float *pq_dists = query_scratch->aligned_pqtable_dist_scratch;
+      pq_table.populate_chunk_distances(query, pq_dists);
+
+      // query <-> neighbor list
+      float *dist_scratch = query_scratch->aligned_dist_scratch;
+      _u8 *  pq_coord_scratch = query_scratch->aligned_pq_coord_scratch;
+
+      // lambda to batch compute query<-> node distances in PQ space
+      // 필요 예상
+      auto compute_dists = [this, pq_coord_scratch, pq_dists](
+                               const unsigned *ids, const _u64 n_ids,
+                               float *dists_out) {
+        ::aggregate_coords(
+            ids, n_ids, this->data, this->n_chunks,
+            pq_coord_scratch);  // id에 해당하는 pq 압축된 벡터(가장 가까운
+                                // centorid id dim개) pq_coord_scratch에 저장
+        ::pq_dist_lookup(
+            pq_coord_scratch, n_ids, this->n_chunks, pq_dists,
+            dists_out);  // dists_out에 쿼리와 해당 점들의 거리 계산 결과
+      };
+
+      Timer query_timer, io_timer, cpu_timer;
+
+      std::vector<Neighbor> retset;
+
+      retset.resize(l_search + 1);
+
+      tsl::robin_set<_u64> visited(4096);
+      // tsl::robin_set<_u64> visited;
+
+      // re-naming `expanded_nodes_info` to not change rest of the code
+      std::vector<Neighbor> &full_retset = expanded_nodes_info;
+      full_retset.reserve(4096);
+
+      _u32 best_medoid = 0;
+      float best_dist = (std::numeric_limits<float>::max)();  // float의 최대값
+      std::vector<SimpleNeighbor> medoid_dists;
+      for (_u64 cur_m = 0; cur_m < num_medoids; cur_m++) {
+        float cur_expanded_dist = dist_cmp_float->compare(
+            query_float, centroid_data + aligned_dim * cur_m,
+            (unsigned) aligned_dim);
+        if (cur_expanded_dist < best_dist) {
+          best_medoid = medoids[cur_m];
+          best_dist = cur_expanded_dist;
+        }
+      }
+      compute_dists(&best_medoid, 1, dist_scratch);
+      retset[0].id = best_medoid;
+      retset[0].distance = dist_scratch[0];
+      retset[0].flag = true;
+      visited.insert(best_medoid);
+      unsigned cur_list_size = 1;
+
+      std::sort(retset.begin(), retset.begin() + cur_list_size);
+
+      unsigned cmps = 0;
+      unsigned hops = 0;
+      unsigned num_ios = 0;
+      unsigned k = 0;
+
+      // cleared every iteration
+      std::vector<unsigned>                    frontier;
+      std::vector<std::pair<unsigned, char *>> frontier_nhoods;
+      std::vector<AlignedRead>                 frontier_read_reqs;
+      std::vector<std::pair<unsigned, std::pair<unsigned, unsigned *>>>
+          cached_nhoods;
+
+      while (k < cur_list_size && num_ios < IO_LIMIT) {
+        auto nk = cur_list_size;
+        // clear iteration state
+        frontier.clear();
+        frontier_nhoods.clear();
+        frontier_read_reqs.clear();
+        cached_nhoods.clear();
+        sector_scratch_idx = 0;
+        // find new beam
+        // WAS: _u64 marker = k - 1;
+        _u32 marker = k;
+        _u32 num_seen = 0;
+        // beam search node 찾기
+        // retset은 sort 되어있는 듯... 확인 필요
+        while (marker < cur_list_size && frontier.size() < beam_width &&
+               num_seen < beam_width) {
+          if (retset[marker].flag) {
+            num_seen++;
+            // nhood_cache: <id,<hood_num,vector_hood>>
+            if (id_disk_map[retset[marker].id] != retset[marker].id) {
+              std::cout << "비이이이이이이사아아아아앙:retset[marker].id"
+                        << std::endl;
             }
-          } else {
-            frontier.push_back(id_disk_map[retset[marker].id]);
+            auto iter = nhood_cache.find(id_disk_map[retset[marker].id]);
+            if (iter != nhood_cache.end()) {
+              cached_nhoods.push_back(
+                  std::make_pair(id_disk_map[retset[marker].id], iter->second));
+              if (stats != nullptr) {
+                stats->n_cache_hits++;
+              }
+            } else {
+              frontier.push_back(id_disk_map[retset[marker].id]);
+            }
+            retset[marker].flag = false;
+            if (this->count_visited_nodes) {
+              reinterpret_cast<std::atomic<_u32> &>(
+                  this->node_visit_counter[id_disk_map[retset[marker].id]]
+                      .second)
+                  .fetch_add(1);
+            }
           }
-          retset[marker].flag = false;
-          if (this->count_visited_nodes) {
-            reinterpret_cast<std::atomic<_u32> &>(
-                this->node_visit_counter[id_disk_map[retset[marker].id]].second)
-                .fetch_add(1);
-          }
+          marker++;
         }
-        marker++;
-      }
 
-      // read nhoods of frontier ids
-      if (!frontier.empty()) {
-        if (stats != nullptr)
-          stats->n_hops++;
+        // read nhoods of frontier ids
+        if (!frontier.empty()) {
+          if (stats != nullptr)
+            stats->n_hops++;
 
-        std::vector<uint32_t> lock_pageid;
-        for (_u64 i = 0; i < frontier.size(); i++) {
-          if (id_disk_map[frontier[i]] != frontier[i]) {
-            std::cout << "비이이이이이이사아아아아앙:frontier[i]" << std::endl;
+          std::vector<uint32_t> lock_pageid;
+          for (_u64 i = 0; i < frontier.size(); i++) {
+            if (id_disk_map[frontier[i]] != frontier[i]) {
+              std::cout << "비이이이이이이사아아아아앙:frontier[i]"
+                        << std::endl;
+            }
+            auto                    id = id_disk_map[frontier[i]];
+            std::pair<_u32, char *> fnhood;
+            fnhood.first = id;
+            fnhood.second =
+                sector_scratch +
+                sector_scratch_idx * SECTOR_LEN;  // sector_scratch에 저장
+            sector_scratch_idx++;
+            frontier_nhoods.push_back(fnhood);
+            uint32_t pageid = 1 + id / this->nnodes_per_sector;
+            lock_pageid.push_back(pageid);
+            frontier_read_reqs.emplace_back(
+                NODE_SECTOR_NO(((size_t) id)) * SECTOR_LEN, SECTOR_LEN,
+                fnhood.second);
+
+            if (stats != nullptr) {
+              stats->n_4k++;
+              stats->n_ios++;
+            }
+            num_ios++;
           }
-          auto                    id = id_disk_map[frontier[i]];
-          std::pair<_u32, char *> fnhood;
-          fnhood.first = id;
-          fnhood.second =
-              sector_scratch +
-              sector_scratch_idx * SECTOR_LEN;  // sector_scratch에 저장
-          sector_scratch_idx++;
-          frontier_nhoods.push_back(fnhood);
-          uint32_t pageid = 1 + id / this->nnodes_per_sector;
-          lock_pageid.push_back(pageid);
-          frontier_read_reqs.emplace_back(
-              NODE_SECTOR_NO(((size_t) id)) * SECTOR_LEN, SECTOR_LEN,
-              fnhood.second);
+          io_timer.reset();
+          // 开启读锁
+          for (auto &pageid : lock_pageid) {
+            CASRWLock *pmutex = &pagemutex[pageid];
+            pmutex->ReadLock();
+          }
+          // #ifdef USE_BING_INFRA
+          //         reader->read(frontier_read_reqs, ctx, true);  // async
+          //         reader windows.
+          // #else
+          reader->read(frontier_read_reqs, ctx, false);  // synchronous IO linux
+                                                         // #endif
 
+          // 结束读锁
+          for (auto &pageid : lock_pageid) {
+            CASRWLock *pmutex = &pagemutex[pageid];
+            pmutex->ReadUnLock();
+          }
           if (stats != nullptr) {
-            stats->n_4k++;
-            stats->n_ios++;
+            stats->io_us += (double) io_timer.elapsed();
           }
-          num_ios++;
         }
-        io_timer.reset();
-        // 开启读锁
-        for (auto &pageid : lock_pageid) {
-          CASRWLock *pmutex = &pagemutex[pageid];
-          pmutex->ReadLock();
+
+        // process cached nhoods
+        for (auto &cached_nhood : cached_nhoods) {
+          auto global_cache_iter = coord_cache.find(cached_nhood.first);
+          T *  node_fp_coords = global_cache_iter->second;  // <원본 벡터>
+          T *  node_fp_coords_copy =
+              data_buf + (data_buf_idx * aligned_dim);  // 원본 벡터 복사
+          data_buf_idx++;
+          memcpy(node_fp_coords_copy, node_fp_coords, data_dim * sizeof(T));
+          float cur_expanded_dist = dist_cmp->compare(
+              query, node_fp_coords_copy,
+              (unsigned) aligned_dim);  // 쿼리와 원본 벡터의 실제 거리
+          bool exclude_cur_node = false;
+          if (exclude_nodes != nullptr) {
+            exclude_cur_node = (exclude_nodes->find(cached_nhood.first) !=
+                                exclude_nodes->end());
+          }
+          // only figure in final list if
+          if (!exclude_cur_node) {
+            // added for StreamingMerger calls
+            if (coord_map != nullptr) {
+              coord_map->insert(
+                  std::make_pair(cached_nhood.first, node_fp_coords_copy));
+            }
+            full_retset.push_back(Neighbor((unsigned) cached_nhood.first,
+                                           cur_expanded_dist, true));
+            // std::cout << "Node #" << cached_nhood.first
+            //           << " 's dist: " << cur_expanded_dist << std::endl;
+          } else {
+            // std::cout <<
+            // "비이이이이이이이사아아아아아아아앙~~~~~~~~~~~~~~~~~~\nexclude_nodes
+            // not null" << std::endl;
+          }
+          _u64      nnbrs = cached_nhood.second.first;       // 이웃 개수
+          unsigned *node_nbrs = cached_nhood.second.second;  // 이웃 버퍼
+
+          for (int i = 0; i < nnbrs; i++) {
+            if (id_disk_map[node_nbrs[i]] != node_nbrs[i]) {
+              std::cout << "비이이이이이이사아아아아앙:node_nbrs[i]"
+                        << std::endl;
+            }
+            node_nbrs[i] = id_disk_map[node_nbrs[i]];
+          }
+
+          // compute node_nbrs <-> query dists in PQ space
+          cpu_timer.reset();
+          compute_dists(node_nbrs, nnbrs, dist_scratch);
+          if (stats != nullptr) {
+            stats->n_cmps += (double) nnbrs;
+            stats->cpu_us += (double) cpu_timer.elapsed();
+          }
+
+          // process prefetched nhood
+          for (_u64 m = 0; m < nnbrs; ++m) {
+            unsigned id = node_nbrs[m];
+            if (visited.find(id) != visited.end()) {
+              continue;
+            } else {
+              visited.insert(id);
+              cmps++;
+              float dist = dist_scratch[m];
+              // diskann::cout << "cmp: " << id << ", dist: " << dist <<
+              // std::endl; std::cerr << "dist: " << dist << std::endl;
+              if (dist >= retset[cur_list_size - 1].distance &&
+                  (cur_list_size == l_search))
+                continue;
+              Neighbor nn(id, dist, true);
+              auto     r = InsertIntoPool(
+                  retset.data(), cur_list_size,
+                  nn);  // Return position in sorted list where nn inserted.
+              if (cur_list_size < l_search)
+                ++cur_list_size;
+              if (r < nk)
+                nk = r;  // nk logs the best position in the retset that was
+              // updated
+              // due to neighbors of n.
+            }
+          }
         }
         // #ifdef USE_BING_INFRA
-        //         reader->read(frontier_read_reqs, ctx, true);  // async reader
-        //         windows.
+        //       // process each frontier nhood - compute distances to unvisited
+        //       nodes int completedIndex = -1;
+        //       // If we issued read requests and if a read is complete or
+        //       there are reads
+        //       // in wait
+        //       // state, then enter the while loop.
+        //       while (frontier_read_reqs.size() > 0 &&
+        //              getNextCompletedRequest(ctx, frontier_read_reqs.size(),
+        //                                      completedIndex)) {
+        //         if (completedIndex == -1) {  // all reads are waiting
+        //           continue;
+        //         }
+        //         auto &frontier_nhood = frontier_nhoods[completedIndex];
+        //         (*ctx.m_pRequestsStatus)[completedIndex] =
+        //         IOContext::PROCESS_COMPLETE;
         // #else
-        reader->read(frontier_read_reqs, ctx, false);  // synchronous IO linux
-                                                       // #endif
 
-        // 结束读锁
-        for (auto &pageid : lock_pageid) {
-          CASRWLock *pmutex = &pagemutex[pageid];
-          pmutex->ReadUnLock();
-        }
-        if (stats != nullptr) {
-          stats->io_us += (double) io_timer.elapsed();
-        }
-      }
+        for (auto &frontier_nhood : frontier_nhoods) {
+          // #endif
+          char *node_disk_buf = OFFSET_TO_NODE(
+              frontier_nhood.second,
+              frontier_nhood
+                  .first);  // node_disk_buf: 읽어온 전체 중 해당 ID 시작 지점
+          unsigned *node_buf = OFFSET_TO_NODE_NHOOD(
+              node_disk_buf);  // node_buf: 이웃 개수 + 이웃 버퍼(원본 제외)
+          _u64 nnbrs = (_u64)(*node_buf);  // nnbrs: 이웃 개수
+          T *  node_fp_coords = OFFSET_TO_NODE_COORDS(
+              node_disk_buf);  // node_disk_buf를 T*로 변환
+          assert(data_buf_idx < MAX_N_CMPS);
 
-      // process cached nhoods
-      for (auto &cached_nhood : cached_nhoods) {
-        auto global_cache_iter = coord_cache.find(cached_nhood.first);
-        T *  node_fp_coords = global_cache_iter->second;  // <원본 벡터>
-        T *  node_fp_coords_copy =
-            data_buf + (data_buf_idx * aligned_dim);  // 원본 벡터 복사
-        data_buf_idx++;
-        memcpy(node_fp_coords_copy, node_fp_coords, data_dim * sizeof(T));
-        float cur_expanded_dist = dist_cmp->compare(
-            query, node_fp_coords_copy,
-            (unsigned) aligned_dim);  // 쿼리와 원본 벡터의 실제 거리
-        bool exclude_cur_node = false;
-        if (exclude_nodes != nullptr) {
-          exclude_cur_node =
-              (exclude_nodes->find(cached_nhood.first) != exclude_nodes->end());
-        }
-        // only figure in final list if
-        if (!exclude_cur_node) {
-          // added for StreamingMerger calls
-          if (coord_map != nullptr) {
-            coord_map->insert(
-                std::make_pair(cached_nhood.first, node_fp_coords_copy));
+          T *node_fp_coords_copy = data_buf + (data_buf_idx * aligned_dim);
+          data_buf_idx++;
+          memcpy(node_fp_coords_copy, node_fp_coords,
+                 data_dim * sizeof(T));  // data_buf에 원본 벡터 복사
+          float cur_expanded_dist = dist_cmp->compare(
+              query, node_fp_coords_copy,
+              (unsigned) aligned_dim);  // 쿼리 - frontier 실제 거리
+          bool exclude_cur_node = false;
+          if (exclude_nodes != nullptr) {
+            // std::cout <<
+            // "비이이이이이이이사아아아아아아아앙~~~~~~~~~~~~~~~~~~\nexclude_nodes
+            // not null" << std::endl;
+            exclude_cur_node = (exclude_nodes->find(frontier_nhood.first) !=
+                                exclude_nodes->end());
           }
-          full_retset.push_back(
-              Neighbor((unsigned) cached_nhood.first, cur_expanded_dist, true));
-          // std::cout << "Node #" << cached_nhood.first
-          //           << " 's dist: " << cur_expanded_dist << std::endl;
-        } else {
-          // std::cout <<
-          // "비이이이이이이이사아아아아아아아앙~~~~~~~~~~~~~~~~~~\nexclude_nodes
-          // not null" << std::endl;
-        }
-        _u64      nnbrs = cached_nhood.second.first;       // 이웃 개수
-        unsigned *node_nbrs = cached_nhood.second.second;  // 이웃 버퍼
-
-        for (int i = 0; i < nnbrs; i++) {
-          if (id_disk_map[node_nbrs[i]] != node_nbrs[i]) {
-            std::cout << "비이이이이이이사아아아아앙:node_nbrs[i]" << std::endl;
-          }
-          node_nbrs[i] = id_disk_map[node_nbrs[i]];
-        }
-
-        // compute node_nbrs <-> query dists in PQ space
-        cpu_timer.reset();
-        compute_dists(node_nbrs, nnbrs, dist_scratch);
-        if (stats != nullptr) {
-          stats->n_cmps += (double) nnbrs;
-          stats->cpu_us += (double) cpu_timer.elapsed();
-        }
-
-        // process prefetched nhood
-        for (_u64 m = 0; m < nnbrs; ++m) {
-          unsigned id = node_nbrs[m];
-          if (visited.find(id) != visited.end()) {
-            continue;
-          } else {
-            visited.insert(id);
-            cmps++;
-            float dist = dist_scratch[m];
-            // diskann::cout << "cmp: " << id << ", dist: " << dist <<
-            // std::endl; std::cerr << "dist: " << dist << std::endl;
-            if (dist >= retset[cur_list_size - 1].distance &&
-                (cur_list_size == l_search))
-              continue;
-            Neighbor nn(id, dist, true);
-            auto     r = InsertIntoPool(
-                retset.data(), cur_list_size,
-                nn);  // Return position in sorted list where nn inserted.
-            if (cur_list_size < l_search)
-              ++cur_list_size;
-            if (r < nk)
-              nk = r;  // nk logs the best position in the retset that was
-            // updated
-            // due to neighbors of n.
-          }
-        }
-      }
-      // #ifdef USE_BING_INFRA
-      //       // process each frontier nhood - compute distances to unvisited
-      //       nodes int completedIndex = -1;
-      //       // If we issued read requests and if a read is complete or there
-      //       are reads
-      //       // in wait
-      //       // state, then enter the while loop.
-      //       while (frontier_read_reqs.size() > 0 &&
-      //              getNextCompletedRequest(ctx, frontier_read_reqs.size(),
-      //                                      completedIndex)) {
-      //         if (completedIndex == -1) {  // all reads are waiting
-      //           continue;
-      //         }
-      //         auto &frontier_nhood = frontier_nhoods[completedIndex];
-      //         (*ctx.m_pRequestsStatus)[completedIndex] =
-      //         IOContext::PROCESS_COMPLETE;
-      // #else
-
-      for (auto &frontier_nhood : frontier_nhoods) {
-        // #endif
-        char *node_disk_buf = OFFSET_TO_NODE(
-            frontier_nhood.second,
-            frontier_nhood
-                .first);  // node_disk_buf: 읽어온 전체 중 해당 ID 시작 지점
-        unsigned *node_buf = OFFSET_TO_NODE_NHOOD(
-            node_disk_buf);  // node_buf: 이웃 개수 + 이웃 버퍼(원본 제외)
-        _u64 nnbrs = (_u64)(*node_buf);  // nnbrs: 이웃 개수
-        T *  node_fp_coords =
-            OFFSET_TO_NODE_COORDS(node_disk_buf);  // node_disk_buf를 T*로 변환
-        assert(data_buf_idx < MAX_N_CMPS);
-
-        T *node_fp_coords_copy = data_buf + (data_buf_idx * aligned_dim);
-        data_buf_idx++;
-        memcpy(node_fp_coords_copy, node_fp_coords,
-               data_dim * sizeof(T));  // data_buf에 원본 벡터 복사
-        float cur_expanded_dist = dist_cmp->compare(
-            query, node_fp_coords_copy,
-            (unsigned) aligned_dim);  // 쿼리 - frontier 실제 거리
-        bool exclude_cur_node = false;
-        if (exclude_nodes != nullptr) {
-          // std::cout <<
-          // "비이이이이이이이사아아아아아아아앙~~~~~~~~~~~~~~~~~~\nexclude_nodes
-          // not null" << std::endl;
-          exclude_cur_node = (exclude_nodes->find(frontier_nhood.first) !=
-                              exclude_nodes->end());
-        }
-        // if node is to be excluded from final search results
-        if (!exclude_cur_node) {
-          // added for StreamingMerger calls
-          if (coord_map != nullptr) {
-            coord_map->insert(
-                std::make_pair(frontier_nhood.first, node_fp_coords_copy));
-          }
-          full_retset.push_back(
-              Neighbor(frontier_nhood.first, cur_expanded_dist, true));
-          // std::cout << "Node #" << frontier_nhood.first
-          //           << " 's dist: " << cur_expanded_dist << std::endl;
-        } else {
-          // std::cout <<
-          // "비이이이이이이이사아아아아아아아앙~~~~~~~~~~~~~~~~~~\nexclude_nodes
-          // not null" << std::endl;
-        }
-        unsigned *node_nbrs = (node_buf + 1);
-        for (int i = 0; i < nnbrs; i++) {
-          if (id_disk_map[node_nbrs[i]] != node_nbrs[i]) {
-            std::cout << "비이이이이이이사아아아아앙:node_nbrs[i]" << std::endl;
-          }
-          node_nbrs[i] = id_disk_map[node_nbrs[i]];
-        }
-        // compute node_nbrs <-> query dist in PQ space
-        cpu_timer.reset();
-        compute_dists(node_nbrs, nnbrs, dist_scratch);
-        if (stats != nullptr) {
-          stats->n_cmps += (double) nnbrs;
-          stats->cpu_us += (double) cpu_timer.elapsed();
-        }
-
-        cpu_timer.reset();
-        // process prefetch-ed nhood
-        for (_u64 m = 0; m < nnbrs; ++m) {
-          unsigned id = node_nbrs[m];
-          // unsigned id = id_disk_map[node_nbrs[m]]; // 안해도 되나??
-          if (visited.find(id) != visited.end()) {
-            continue;
-          } else {
-            // 없어도 되나??
-            // if (id_disk_map[node_nbrs[m]] != node_nbrs[m]) {
-            //   visited.insert(node_nbrs[m]);
-            // }
-            visited.insert(id);
-            cmps++;
-            float dist = dist_scratch[m];
-            if (stats != nullptr) {
-              stats->n_cmps++;
+          // if node is to be excluded from final search results
+          if (!exclude_cur_node) {
+            // added for StreamingMerger calls
+            if (coord_map != nullptr) {
+              coord_map->insert(
+                  std::make_pair(frontier_nhood.first, node_fp_coords_copy));
             }
-            if (dist >= retset[cur_list_size - 1].distance &&
-                (cur_list_size == l_search))
+            full_retset.push_back(
+                Neighbor(frontier_nhood.first, cur_expanded_dist, true));
+            // std::cout << "Node #" << frontier_nhood.first
+            //           << " 's dist: " << cur_expanded_dist << std::endl;
+          } else {
+            // std::cout <<
+            // "비이이이이이이이사아아아아아아아앙~~~~~~~~~~~~~~~~~~\nexclude_nodes
+            // not null" << std::endl;
+          }
+          unsigned *node_nbrs = (node_buf + 1);
+          for (int i = 0; i < nnbrs; i++) {
+            if (id_disk_map[node_nbrs[i]] != node_nbrs[i]) {
+              std::cout << "비이이이이이이사아아아아앙:node_nbrs[i]"
+                        << std::endl;
+            }
+            node_nbrs[i] = id_disk_map[node_nbrs[i]];
+          }
+          // compute node_nbrs <-> query dist in PQ space
+          cpu_timer.reset();
+          compute_dists(node_nbrs, nnbrs, dist_scratch);
+          if (stats != nullptr) {
+            stats->n_cmps += (double) nnbrs;
+            stats->cpu_us += (double) cpu_timer.elapsed();
+          }
+
+          cpu_timer.reset();
+          // process prefetch-ed nhood
+          for (_u64 m = 0; m < nnbrs; ++m) {
+            unsigned id = node_nbrs[m];
+            // unsigned id = id_disk_map[node_nbrs[m]]; // 안해도 되나??
+            if (visited.find(id) != visited.end()) {
               continue;
-            Neighbor nn(id, dist, true);
-            auto     r = InsertIntoPool(
-                retset.data(), cur_list_size,
-                nn);  // Return position in sorted list where nn inserted.
-            if (cur_list_size < l_search)
-              ++cur_list_size;
-            if (r < nk)
-              nk = r;  // nk logs the best position in the retset that was
-                       // updated
-                       // due to neighbors of n.
+            } else {
+              // 없어도 되나??
+              // if (id_disk_map[node_nbrs[m]] != node_nbrs[m]) {
+              //   visited.insert(node_nbrs[m]);
+              // }
+              visited.insert(id);
+              cmps++;
+              float dist = dist_scratch[m];
+              if (stats != nullptr) {
+                stats->n_cmps++;
+              }
+              if (dist >= retset[cur_list_size - 1].distance &&
+                  (cur_list_size == l_search))
+                continue;
+              Neighbor nn(id, dist, true);
+              auto     r = InsertIntoPool(
+                  retset.data(), cur_list_size,
+                  nn);  // Return position in sorted list where nn inserted.
+              if (cur_list_size < l_search)
+                ++cur_list_size;
+              if (r < nk)
+                nk = r;  // nk logs the best position in the retset that was
+                         // updated
+                         // due to neighbors of n.
+            }
+          }
+
+          if (stats != nullptr) {
+            stats->cpu_us += (double) cpu_timer.elapsed();
           }
         }
 
-        if (stats != nullptr) {
-          stats->cpu_us += (double) cpu_timer.elapsed();
+        // update best inserted position
+        //
+
+        if (nk <= k)
+          k = nk;  // k is the best position in retset updated in this round.
+        else
+          ++k;
+
+        hops++;
+        if (stats != nullptr && stats->n_current_used != 0) {
+          auto   diskSearchEnd = std::chrono::high_resolution_clock::now();
+          double elapsedSeconds =
+              std::chrono::duration_cast<std::chrono::milliseconds>(
+                  diskSearchEnd - diskSearchBegin)
+                  .count();
+          // if (elapsedSeconds >= stats->n_current_used)
+          //   break;
         }
       }
 
-      // update best inserted position
-      //
-
-      if (nk <= k)
-        k = nk;  // k is the best position in retset updated in this round.
-      else
-        ++k;
-
-      hops++;
-      if (stats != nullptr && stats->n_current_used != 0) {
-        auto   diskSearchEnd = std::chrono::high_resolution_clock::now();
-        double elapsedSeconds =
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                diskSearchEnd - diskSearchBegin)
-                .count();
-        // if (elapsedSeconds >= stats->n_current_used)
-        //   break;
+      // re-sort by distance
+      std::sort(full_retset.begin(), full_retset.end(),
+                [](const Neighbor &left, const Neighbor &right) {
+                  return left.distance < right.distance;
+                });
+      // std::cout << "Full retset size: " << full_retset.size() << std::endl;
+      // for (auto &ind : full_retset) {
+      //   std::cout << ind.id << " " << ind.distance << std::endl;
+      // }
+      // return data to ConcurrentQueue only if popped from it
+      if (passthrough_data == nullptr) {
+        this->thread_data.push(data);
+        this->thread_data.push_notify_all();
       }
-    }
 
-    // re-sort by distance
-    std::sort(full_retset.begin(), full_retset.end(),
-              [](const Neighbor &left, const Neighbor &right) {
-                return left.distance < right.distance;
-              });
-    // std::cout << "Full retset size: " << full_retset.size() << std::endl;
-    // for (auto &ind : full_retset) {
-    //   std::cout << ind.id << " " << ind.distance << std::endl;
-    // }
-    // return data to ConcurrentQueue only if popped from it
-    if (passthrough_data == nullptr) {
-      this->thread_data.push(data);
-      this->thread_data.push_notify_all();
-    }
-
-    if (stats != nullptr) {
-      stats->total_us = (double) query_timer.elapsed();
+      if (stats != nullptr) {
+        stats->total_us = (double) query_timer.elapsed();
+      }
     }
   }
 

@@ -125,11 +125,17 @@ namespace diskann {
                     << std::endl;
       exit(-1);
     }
+<<<<<<< HEAD
     
     for (uint32_t i = 0; i < _disk_index->return_nd(); i++) {
       id_disk_map.push_back(i);
     }
 
+=======
+    for (uint32_t i = 0; i < _disk_index->return_nd(); i++) {
+      id_disk_map.push_back(i);
+    }
+>>>>>>> 9b09e96... id_disk_map 사용해서 search 가능
     TMP_FOLDER = working_folder;
     std::cout << "TMP_FOLDER inside MergeInsert : " << TMP_FOLDER << std::endl;
   }
