@@ -136,6 +136,9 @@ namespace diskann {
       id_disk_map.push_back(i);
     }
 >>>>>>> 9b09e96... id_disk_map 사용해서 search 가능
+    for (uint32_t i = 0; i < _disk_index->return_nd(); i++) {
+      id_disk_map.push_back(i);
+    }
     TMP_FOLDER = working_folder;
     std::cout << "TMP_FOLDER inside MergeInsert : " << TMP_FOLDER << std::endl;
   }
@@ -263,6 +266,7 @@ namespace diskann {
       std::vector<TagT>     disk_result_tags(search_L);
       int                   searchNum = _disk_index->cached_beam_search(
           query, search_L, search_L, disk_result_tags.data(),
+          disk_result_dists.data(), _beamwidth, stats, this->id_disk_map);
           disk_result_dists.data(), _beamwidth, stats, this->id_disk_map);
       // std::cout << "searchNUM: " << searchNum << std::endl;
       auto   diskSearchEnd = std::chrono::high_resolution_clock::now();
