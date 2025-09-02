@@ -214,9 +214,13 @@ namespace diskann {
       // iteratively insert each point into full index
       for (int32_t j = 0; j < (int32_t) count; j++) {
         // filter out -- `j` is deleted
-        if (deleted_set.find((uint32_t) j) != deleted_set.end()) {
+        if (j < 0) {
+    std::cerr << "Invalid value of j: " << j << std::endl;
+}
+        if (!deleted_set.empty() && deleted_set.find((uint32_t) j) != deleted_set.end()) {
           continue;
         }
+        
 
         if (((j % 100000) == 0) && (j > 0)) {
           // double   insert_time = std::accumulate(this->insert_times.begin(),

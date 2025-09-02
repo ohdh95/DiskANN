@@ -465,9 +465,10 @@ void update(const std::string& data_path, const unsigned L_mem,
   std::string currentFileName = truthset_file + std::to_string(0) + ".fbin";
   std::cout << "Current_GT_File: " << currentFileName << std::endl;
   begin_time = globalTimer.elapsed() / 1.0e6f;
-  sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
-                     sync_index, currentFileName, inactive_tags, base_num,
-                     false, true);
+  // test용 일단 주석
+  // sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
+  //                    sync_index, currentFileName, inactive_tags, base_num,
+  //                    false, true);
 
   int               batch = step;
   int               inMmeorySize = 0;
