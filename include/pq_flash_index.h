@@ -264,6 +264,9 @@ namespace diskann {
     _u64                 n_chunks;
     FixedChunkPQTable<T> pq_table;
 
+    // 이웃 버퍼
+    uint32_t *mem_index = nullptr;  // uint32_t[max_degree * disk_nnodes]
+
     // distance comparator
     std::shared_ptr<Distance<T>>     dist_cmp;
     std::shared_ptr<Distance<float>> dist_cmp_float;

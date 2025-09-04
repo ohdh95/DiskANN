@@ -21,5 +21,10 @@ else()
 
 	target_link_libraries(${PROJECT_NAME} ${TBB_LIBRARIES})
 	target_link_libraries(${PROJECT_NAME}_s ${TBB_LIBRARIES})
+	
+	if(pmem_FOUND)
+        target_link_libraries(${PROJECT_NAME} PUBLIC pmem::libpmem)
+        target_link_libraries(${PROJECT_NAME}_s PUBLIC pmem::libpmem)
+    endif()
 endif()
 install()

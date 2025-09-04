@@ -20,6 +20,7 @@
 
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <libpmem.h>
 #include "tcmalloc/malloc_extension.h"
 #include "cosine_similarity.h"
 #include "tsl/robin_set.h"
@@ -588,7 +589,7 @@ namespace diskann {
                                   bool new_index_format) {
 #endif
     std::string pq_table_bin, pq_compressed_vectors, disk_index_file,
-        medoids_file, centroids_file;
+        medoids_file, centroids_file, pm_prefix, pm_index_file, index_name;
 
     if (false == this->single_index_file) {
       std::string iprefix = std::string(index_prefix);
@@ -598,6 +599,10 @@ namespace diskann {
       this->_disk_index_file = disk_index_file;
       medoids_file = disk_index_file + "_medoids.bin";
       centroids_file = disk_index_file + "_centroids.bin";
+      pm_prefix = "/home/ohdh95/mnt/";
+      index_name = iprefix.substr(iprefix.find_last_of('/') + 1);
+      pm_index_file = pm_prefix + index_name + "_pm.index";
+      std::cout << "PM Index file: " << pm_index_file << std::endl;
     } else {
       // Since incremental index which uses single file index is never
       // a result of merging multiple indices, we won't have medoids
@@ -622,7 +627,7 @@ namespace diskann {
     std::basic_istream<char> index_metadata(&buf);
 
 #else
-    std::ifstream index_metadata(disk_index_file, std::ios::binary);
+    std::ifstream index_metadata(pm_index_file, std::ios::binary);
 #endif
 
     size_t tags_offset = 0;
@@ -646,8 +651,10 @@ namespace diskann {
       READ_U64(index_metadata, max_node_len);
       READ_U64(index_metadata, nnodes_per_sector);
       data_dim = disk_ndims;
-      max_degree =
-          ((max_node_len - data_dim * sizeof(T)) / sizeof(unsigned)) - 1;
+      max_degree = ((max_node_len) / sizeof(uint32_t)) - 1;
+      nnodes_per_sector = SECTOR_LEN / (disk_ndims * sizeof(T));
+      // max_degree =
+      //     ((max_node_len - data_dim * sizeof(T)) / sizeof(unsigned)) - 1;
       pagesize = (disk_nnodes + nnodes_per_sector - 1) / (nnodes_per_sector);
       std::cout << "Pagesize: " << pagesize << " " << disk_nnodes << " "
                 << nnodes_per_sector << std::endl;
@@ -668,8 +675,8 @@ namespace diskann {
                       << ". Will not output it at search time." << std::endl;
       }
       READ_U64(index_metadata, tags_offset);
-      READ_U64(index_metadata, pq_pivots_offset);
-      READ_U64(index_metadata, pq_vectors_offset);
+      // READ_U64(index_metadata, pq_pivots_offset);
+      // READ_U64(index_metadata, pq_vectors_offset);
 
       diskann::cout << "Tags offset: " << tags_offset
                     << " PQ Pivots offset: " << pq_pivots_offset
@@ -741,6 +748,8 @@ namespace diskann {
     pq_table.load_pq_centroid_bin(files, pq_table_bin.c_str(), nchunks_u64,
                                   pq_pivots_offset);
 #else
+    std::cout << "pq_table_bin: " << pq_table_bin << std::endl
+              << " pq_pivots_offset: " << pq_pivots_offset << std::endl;
     pq_table.load_pq_centroid_bin(pq_table_bin.c_str(), nchunks_u64,
                                   pq_pivots_offset);
 #endif
@@ -752,8 +761,8 @@ namespace diskann {
       return -1;
     }
 
-    this->data_dim = pq_table.get_dim();
-    this->aligned_dim = ROUND_UP(this->data_dim, 8);
+    // this->data_dim = pq_table.get_dim();
+    this->aligned_dim = this->data_dim;
 
     diskann::cout
         << "Loaded PQ centroids and in-memory compressed vectors. #points: "
@@ -826,6 +835,32 @@ namespace diskann {
       medoids = new uint32_t[1];
       medoids[0] = (_u32)(medoid_id_on_file);
       use_medoids_data_as_centroids();
+    }
+
+    std::cout << "max_degree: " << max_degree << std::endl
+              << disk_nnodes << std::endl;
+    size_t len = (this->max_degree + 1) * disk_nnodes * sizeof(uint32_t) + 72;
+    size_t mapped_len;
+    int    is_pmem;
+    int    flag = PMEM_FILE_CREATE;
+    mode_t perm = 0666;
+    std::cout << "Loading disk index file: " << pm_index_file << std::endl
+              << "len: " << len << std::endl;
+    if (this->mem_index == nullptr) {
+      this->mem_index = (uint32_t *) pmem_map_file(
+          pm_index_file.c_str(), len, flag, perm, &mapped_len, &is_pmem);
+
+      if (this->mem_index == nullptr) {
+        perror("pmem_map_file failed");
+        throw std::runtime_error("Failed to mmap mem_index_file");
+      }
+
+      // index.read((char *)this->mem_index, (_max_degree + 1) * disk_nnodes *
+      // sizeof(uint32_t));
+      this->mem_index =
+          this->mem_index + (72 / sizeof(uint32_t));  // skip the first 72 bytes
+
+      std::cout << "mem_index + 72" << std::endl;
     }
 
     // load tags
@@ -1561,7 +1596,7 @@ namespace diskann {
           if (stats != nullptr)
             stats->n_hops++;
 
-          std::vector<uint32_t> lock_pageid;
+          // std::vector<uint32_t> lock_pageid;
           for (_u64 i = 0; i < frontier.size(); i++) {
             if (id_disk_map[frontier[i]] != frontier[i]) {
               std::cout << "비이이이이이이사아아아아앙:frontier[i]"
@@ -1575,11 +1610,11 @@ namespace diskann {
                 sector_scratch_idx * SECTOR_LEN;  // sector_scratch에 저장
             sector_scratch_idx++;
             frontier_nhoods.push_back(fnhood);
-            uint32_t pageid = 1 + id / this->nnodes_per_sector;
-            lock_pageid.push_back(pageid);
+            // uint32_t pageid = 1 + id / this->nnodes_per_sector;
+            // lock_pageid.push_back(pageid);
             frontier_read_reqs.emplace_back(
-                NODE_SECTOR_NO(((size_t) id)) * SECTOR_LEN, SECTOR_LEN,
-                fnhood.second);
+                (id / (SECTOR_LEN / (this->data_dim * sizeof(T)))) * SECTOR_LEN,
+                SECTOR_LEN, fnhood.second);
 
             if (stats != nullptr) {
               stats->n_4k++;
@@ -1589,10 +1624,10 @@ namespace diskann {
           }
           io_timer.reset();
           // 开启读锁
-          for (auto &pageid : lock_pageid) {
-            CASRWLock *pmutex = &pagemutex[pageid];
-            pmutex->ReadLock();
-          }
+          // for (auto &pageid : lock_pageid) {
+          //   CASRWLock *pmutex = &pagemutex[pageid];
+          //   pmutex->ReadLock();
+          // }
           // #ifdef USE_BING_INFRA
           //         reader->read(frontier_read_reqs, ctx, true);  // async
           //         reader windows.
@@ -1601,10 +1636,10 @@ namespace diskann {
                                                          // #endif
 
           // 结束读锁
-          for (auto &pageid : lock_pageid) {
-            CASRWLock *pmutex = &pagemutex[pageid];
-            pmutex->ReadUnLock();
-          }
+          // for (auto &pageid : lock_pageid) {
+          //   CASRWLock *pmutex = &pagemutex[pageid];
+          //   pmutex->ReadUnLock();
+          // }
           if (stats != nullptr) {
             stats->io_us += (double) io_timer.elapsed();
           }
@@ -1708,12 +1743,20 @@ namespace diskann {
 
         for (auto &frontier_nhood : frontier_nhoods) {
           // #endif
-          char *node_disk_buf = OFFSET_TO_NODE(
-              frontier_nhood.second,
-              frontier_nhood
-                  .first);  // node_disk_buf: 읽어온 전체 중 해당 ID 시작 지점
-          unsigned *node_buf = OFFSET_TO_NODE_NHOOD(
-              node_disk_buf);  // node_buf: 이웃 개수 + 이웃 버퍼(원본 제외)
+          char *node_disk_buf =
+              (char *) (frontier_nhood.second +
+                        (frontier_nhood.first %
+                         (SECTOR_LEN / (this->data_dim * sizeof(T)))) *
+                            sizeof(T) * this->data_dim);
+          // OFFSET_TO_NODE(
+          //     frontier_nhood.second,
+          //     frontier_nhood
+          //         .first);  // node_disk_buf: 읽어온 전체 중 해당 ID 시작
+          //         지점
+          unsigned *node_buf =
+              this->mem_index + (frontier_nhood.first) * (this->max_degree + 1);
+          // OFFSET_TO_NODE_NHOOD(
+          //     node_disk_buf);  // node_buf: 이웃 개수 + 이웃 버퍼(원본 제외)
           _u64 nnbrs = (_u64)(*node_buf);  // nnbrs: 이웃 개수
           T *  node_fp_coords = OFFSET_TO_NODE_COORDS(
               node_disk_buf);  // node_disk_buf를 T*로 변환

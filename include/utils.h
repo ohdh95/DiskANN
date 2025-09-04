@@ -290,6 +290,8 @@ namespace diskann {
                                size_t& ncols, size_t offset = 0) {
     std::ifstream reader(bin_file.c_str(), std::ios::binary);
     get_bin_metadata_impl(reader, nrows, ncols, offset);
+    std::cout << "Metadata for file: " << bin_file << " is nrows: " << nrows
+              << ", ncols: " << ncols << std::endl;
   }
   // get_bin_metadata functions END
 
