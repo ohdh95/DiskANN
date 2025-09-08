@@ -17,7 +17,7 @@ bash make_tags.sh
 
 # Part3: process disk_index_R32 as disk_index_R34 for Greator (ie, 33/34)
 
-cd "$project_dir"/scripts/pre_dataset
-bash process_index_for_diffR.sh
+# cd "$project_dir"/scripts/pre_dataset
+# bash process_index_for_diffR.sh
 
 

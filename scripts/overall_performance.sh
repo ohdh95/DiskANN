@@ -9,8 +9,8 @@ find "$delete_dir" -mindepth 1 ! -path "$delete_dir/disk_init*" -exec rm -rf {} 
 
 cp "$delete_dir/disk_init"/* "$delete_dir"/
 
-# rm -r "$delete_dir"/_index_temp
-# mkdir "$delete_dir"/_index_temp
+rm -r "$delete_dir"/_index_temp
+mkdir "$delete_dir"/_index_temp
 
 rm -r "$delete_dir"/index_temp
 mkdir -p "$delete_dir"/index_temp
@@ -35,7 +35,7 @@ num_shards=100
 num_pq_chunks=100
 num_nodes_to_cache=0
 # save_graph_file="$delete_dir"/_index
-save_graph_file="$delete_dir"/index
+save_graph_file="$delete_dir"/_index
 update=true
 build=false
 full_data_bin="$mydir"/dataset/"$name"/"$name"_base.fbin

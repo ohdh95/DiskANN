@@ -705,6 +705,7 @@ namespace diskann {
     //    size_t          actual_file_size = get_file_size(mem_index_file);
     std::remove(output_file.c_str());
     cached_ofstream diskann_writer;
+    std::cout << "output_file: " << output_file << std::endl;
     diskann_writer.open(output_file, write_blk_size);
 
     // metadata: width, medoid
@@ -723,10 +724,11 @@ namespace diskann {
     medoid = (_u64) medoid_u32;
     if (vamana_frozen_num == 1)
       vamana_frozen_loc = medoid;
-    max_node_len =
-        (((_u64) width_u32 + 1) * sizeof(unsigned)) + (ndims_64 * sizeof(T));
+    max_node_len = ndims_64 * sizeof(T);
+    // (((_u64) width_u32 + 1) * sizeof(unsigned)) + (ndims_64 * sizeof(T));
     nnodes_per_sector = SECTOR_LEN / max_node_len;
-
+    std::cout << "max_node_len: " << max_node_len << std::endl
+              << "nnodes_per_sector: " << nnodes_per_sector << std::endl;
   diskann:
     cout << "SECTOR_LEN: " << SECTOR_LEN << std::endl;
 
@@ -738,29 +740,70 @@ namespace diskann {
     // SECTOR_LEN buffer for each sector
     std::unique_ptr<char[]> sector_buf = std::make_unique<char[]>(SECTOR_LEN);
     std::unique_ptr<char[]> node_buf = std::make_unique<char[]>(max_node_len);
-    unsigned &nnbrs = *(unsigned *) (node_buf.get() + ndims_64 * sizeof(T));
-    unsigned *nhood_buf =
-        (unsigned *) (node_buf.get() + (ndims_64 * sizeof(T)) +
-                      sizeof(unsigned));
+    // unsigned &nnbrs = *(unsigned *) (node_buf.get() + ndims_64 * sizeof(T));
+    unsigned  nnbrs;
+    unsigned *nhood_buf = new unsigned[width_u32];
+    // (unsigned *) (node_buf.get() + (ndims_64 * sizeof(T)) +
+    //               sizeof(unsigned));
 
     // number of sectors (1 for meta data)
     _u64 n_sectors = ROUND_UP(npts_64, nnodes_per_sector) / nnodes_per_sector;
     _u64 disk_index_file_size = (n_sectors + 1) * SECTOR_LEN;
 
-    std::vector<_u64> output_file_meta;
-    output_file_meta.push_back(npts_64);
-    output_file_meta.push_back(ndims_64);
-    output_file_meta.push_back(medoid);
-    output_file_meta.push_back(max_node_len);
-    output_file_meta.push_back(nnodes_per_sector);
-    output_file_meta.push_back(vamana_frozen_num);
-    output_file_meta.push_back(vamana_frozen_loc);
-    output_file_meta.push_back(disk_index_file_size);
+    std::string pmem_prefix = "/home/ohdh95/mnt";
+    std::string _pmem_index_path =
+        pmem_prefix + output_file.substr(output_file.find_last_of('/'));
+    std::string pmem_index_path =
+        _pmem_index_path.substr(0, _pmem_index_path.find_last_of('_')) +
+        "_pm.index";
+    std::cout << "pmem_index_path: " << pmem_index_path << std::endl;
+    std::cout << "width_u32: " << width_u32 << std::endl;
+    std::ofstream pm_writer(pmem_index_path, std::ios::binary);
 
-    diskann_writer.write(sector_buf.get(), SECTOR_LEN);  // write out the empty
-                                                         // first sector, will
-                                                         // be populated at the
-                                                         // end.
+    // 4byte nr(metadata 개수, 9)
+    // 4byte nc(1)
+    // 8byte 벡터 개수
+    // 8byte dim
+    // 8byte 중심점 ID
+    // 8byte max_node_len(644)
+    // 8byte _nnodes_per_sector(6)
+    // 8byte frozen_point 개수(0)
+    // 8byte file_frozen_id(0)
+    // 8byte _reorder_data_exists(0)
+    std::vector<_u64> output_file_meta;
+    _u32              _nr = 9, _nc = 1;
+    pm_writer.write((char *) &_nr, sizeof(_u32));
+    pm_writer.write((char *) &_nc, sizeof(_u32));
+
+    output_file_meta.push_back(npts_64);
+    pm_writer.write((char *) &npts_64, sizeof(_u64));
+
+    output_file_meta.push_back(ndims_64);
+    pm_writer.write((char *) &ndims_64, sizeof(_u64));
+
+    output_file_meta.push_back(medoid);
+    pm_writer.write((char *) &medoid, sizeof(_u64));
+
+    output_file_meta.push_back(max_node_len);
+    _u64 _max_node_len = (width_u32 + 1) * sizeof(_u32);
+    pm_writer.write((char *) &_max_node_len, sizeof(_u64));
+
+    output_file_meta.push_back(nnodes_per_sector);
+    _u64 _nnodes_per_sector = SECTOR_LEN / _max_node_len;
+    pm_writer.write((char *) &_nnodes_per_sector, sizeof(_u64));
+
+    output_file_meta.push_back(vamana_frozen_num);
+    pm_writer.write((char *) &vamana_frozen_num, sizeof(_u64));
+
+    output_file_meta.push_back(vamana_frozen_loc);
+    pm_writer.write((char *) &vamana_frozen_loc, sizeof(_u64));
+
+    // output_file_meta.push_back(disk_index_file_size);
+    // pm_writer.write((char *) &disk_index_file_size, sizeof(_u64));
+    _u64 reorder_data_exists = 0;
+    pm_writer.write((char *) &reorder_data_exists, sizeof(_u64));
+    // diskann_writer.write(sector_buf.get(), SECTOR_LEN);  // write out the
+    // empty first sector, will be populated at the end.
 
     std::unique_ptr<T[]> cur_node_coords = std::make_unique<T[]>(ndims_64);
     diskann::cout << "# sectors: " << n_sectors << std::endl;
@@ -776,7 +819,10 @@ namespace diskann {
         memset(node_buf.get(), 0, max_node_len);
         // read cur node's nnbrs
         vamana_reader.read((char *) &nnbrs, sizeof(unsigned));
-
+        pm_writer.write((char *) &nnbrs, sizeof(unsigned));
+        if (nnbrs != 32) {
+          std::cout << "WARNING" << std::endl;
+        }
         // sanity checks on nnbrs
         if (nnbrs == 0) {
           diskann::cout << "ERROR. Found point with no out-neighbors; Point#: "
@@ -785,8 +831,10 @@ namespace diskann {
         }
 
         // read node's nhood
+        memset(nhood_buf, 0, width_u32 * sizeof(unsigned));
         vamana_reader.read((char *) nhood_buf,
                            (std::min)(nnbrs, width_u32) * sizeof(unsigned));
+        pm_writer.write((char *) nhood_buf, width_u32 * sizeof(unsigned));
         if (nnbrs > width_u32) {
           vamana_reader.seekg((nnbrs - width_u32) * sizeof(unsigned),
                               vamana_reader.cur);
@@ -798,12 +846,13 @@ namespace diskann {
         memcpy(node_buf.get(), cur_node_coords.get(), ndims_64 * sizeof(T));
 
         // write nnbrs
-        *(unsigned *) (node_buf.get() + ndims_64 * sizeof(T)) =
-            (std::min)(nnbrs, width_u32);
+        // *(unsigned *) (node_buf.get() + ndims_64 * sizeof(T)) =
+        //     (std::min)(nnbrs, width_u32);
 
-        // write nhood next
-        memcpy(node_buf.get() + ndims_64 * sizeof(T) + sizeof(unsigned),
-               nhood_buf, (std::min)(nnbrs, width_u32) * sizeof(unsigned));
+        // // write nhood next
+
+        // memcpy(node_buf.get() + ndims_64 * sizeof(T) + sizeof(unsigned),
+        //        nhood_buf, (std::min)(nnbrs, width_u32) * sizeof(unsigned));
 
         // get offset into sector_buf
         char *sector_node_buf =
@@ -817,6 +866,7 @@ namespace diskann {
       diskann_writer.write(sector_buf.get(), SECTOR_LEN);
     }
     diskann_writer.close();
+    pm_writer.close();
     size_t tag_bytes_written = 0;
 
     // frozen point implies dynamic index which must have tags
