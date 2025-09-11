@@ -172,7 +172,7 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
     std::cout << "current truthfile: " << truthset_file << std::endl;
     diskann::load_truthset(truthset_file, gt_ids, gt_dists, gt_num, gt_dim,
                            &gt_tags);
-    std::cout << "load truthset over" << std::endl;
+    std::cout << "load truthset over!!" << std::endl;
   }
   float* query_result_dists = new float[recall_at * query_num];
   TagT*  query_result_tags = new TagT[recall_at * query_num];
@@ -328,6 +328,9 @@ void deletion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
             << " microsec" << std::endl;
 }
 
+// 삭제된 벡터 id delete_vec에 저장
+// 삽입된 벡터 id insert_vec에 저장
+// data_load에 삽입된 벡터의 실제 데이터 저장
 template<typename T, typename TagT>
 void insertion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
                       std::vector<TagT>& insert_vec, size_t aligned_dim) {
@@ -335,12 +338,22 @@ void insertion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
   size_t              npts = insert_vec.size();
   std::vector<double> insert_latencies(npts, 0);
   std::cout << "Begin Insert" << std::endl;
-#pragma omp parallel for num_threads(NUM_INSERT_THREADS)
+  sync_index.construct_index_merger(2);
+  sync_index.get_merger()->set_disk_thread_data(
+      sync_index.get_disk_index()->get_thread_data());
+  // #pragma omp parallel for num_threads(NUM_INSERT_THREADS)
   for (_s64 i = 0; i < (_s64) insert_vec.size(); i++) {
     diskann::Timer insert_timer;
-    sync_index.insert(data_load + aligned_dim * i, insert_vec[i]);
+    // sync_index.insert(data_load + aligned_dim * i, insert_vec[i]); // (원본
+    // 데이터, id)
+    sync_index.get_merger()->insert_point(data_load + aligned_dim * i,
+                                          insert_vec[i]);
+
     insert_latencies[i] = ((double) insert_timer.elapsed());
   }
+  std::cout << "Waiting for all insert to finish" << std::endl;
+  sync_index.destruct_index_merger();
+  std::cout << "Waiting for all insert to finish!" << std::endl;
   float time_secs = timer.elapsed() / 1.0e6f;
   std::sort(insert_latencies.begin(), insert_latencies.end());
   std::cout << "Inserted " << insert_vec.size() << " points in " << time_secs
@@ -364,6 +377,9 @@ void insertion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
             << " microsec" << std::endl;
 }
 
+// 삭제된 벡터 id delete_tags에 저장
+// 삽입된 벡터 id insert_tags에 저장
+// data_load에 삽입된 벡터의 실제 데이터 저장
 template<typename T, typename TagT = uint32_t>
 void get_trace(tsl::robin_set<uint32_t>& inactive_set,
                std::vector<TagT>& delete_tags, std::vector<TagT>& insert_tags,
@@ -394,9 +410,9 @@ void get_trace(tsl::robin_set<uint32_t>& inactive_set,
   reader.seekg(0);
   reader.read((char*) &npts_i32, sizeof(int));
   reader.read((char*) &dim_i32, sizeof(int));
-  dim = (unsigned) dim_i32;
-  rounded_dim = ROUND_UP(dim, 8);
-  size_t allocSize = update_size * rounded_dim * sizeof(T);
+  dim = (unsigned) dim_i32;                                  // 128
+  rounded_dim = ROUND_UP(dim, 8);                            // 128
+  size_t allocSize = update_size * rounded_dim * sizeof(T);  // 1000 * 128 * 4
 
   diskann::alloc_aligned(((void**) &data_load), allocSize, 8 * sizeof(T));
 
@@ -469,71 +485,70 @@ void update(const std::string& data_path, const unsigned L_mem,
                      sync_index, currentFileName, inactive_tags, base_num,
                      false, true);
 
-  // int               batch = step;
-  // int               inMmeorySize = 0;
-  // int               res = base_num;
-  // std::future<void> merge_future;
+  int               batch = step;
+  int               inMmeorySize = 0;
+  int               res = base_num;
+  std::future<void> merge_future;
 
-  // for (int i = 0; i < batch; i++) {
-  //   std::cout << "Batch: " << i << " Total Batch : " << step << std::endl;
+  for (int i = 0; i < batch; i++) {
+    std::cout << "Batch: " << i << " Total Batch : " << step << std::endl;
 
-  //   diskann::Timer        batch_timer;
-  //   std::vector<unsigned> insert_vec;
-  //   std::vector<unsigned> delete_vec;
+    diskann::Timer        batch_timer;
+    std::vector<unsigned> insert_vec;
+    std::vector<unsigned> delete_vec;
 
-  //   /**Prepare for update*/
-  //   std::string trace_file_name = trace_file_prefix + std::to_string(i);
-  //   std::string all_data = data_path;
-  //   get_trace<T, TagT>(inactive_tags, delete_vec, insert_vec,
-  //   trace_file_name,
-  //                      data_load, all_data, dim, aligned_dim);
+    /**Prepare for update*/
+    std::string trace_file_name = trace_file_prefix + std::to_string(i);
+    std::string all_data = data_path;
+    // 삭제된 벡터 id delete_vec에 저장
+    // 삽입된 벡터 id insert_vec에 저장
+    // data_load에 삽입된 벡터의 실제 데이터 저장
+    get_trace<T, TagT>(inactive_tags, delete_vec, insert_vec, trace_file_name,
+                       data_load, all_data, dim, aligned_dim);
 
-  //   deletion_kernel(data_load, sync_index, delete_vec, aligned_dim, L_mem);
-  //   std::cout <<
-  //   "_________________________Over_deletion_kernel________________"
-  //                "_________"
-  //             << std::endl;
+    // deletion_kernel(data_load, sync_index, delete_vec, aligned_dim, L_mem);
+    std::cout << "_________________________Over_deletion_kernel________________"
+                 "_________"
+              << std::endl;
 
-  //   insertion_kernel(data_load, sync_index, insert_vec, aligned_dim);
-  //   std::cout <<
-  //   "_________________________Over_insertion_kernel_______________"
-  //                "__________"
-  //             << std::endl;
+    insertion_kernel(data_load, sync_index, insert_vec, aligned_dim);
+    std::cout << "_________________________Over_insertion_kernel_______________"
+                 "__________"
+              << std::endl;
 
-  //   inMmeorySize += insert_vec.size();
+    inMmeorySize += insert_vec.size();
 
-  //   if (inMmeorySize >= MERGE_TH) {
-  //     get_io_info("begin");
-  //     std::cout << "Begin Merge" << std::endl;
-  //     merge_kernel<T, TagT>(sync_index, save_path, id_map);
-  //     get_io_info("end");
-  //     std::cout << "IO_all" << std::endl;
-  //     inMmeorySize = 0;
-  //   }
-  //   double e2e_time = ((double) batch_timer.elapsed()) / (1000000.0);
-  //   diskann::cout << "Batch #" << i << " use " << e2e_time << " s."
-  //                 << std::endl;
-  //   auto copy_file = [](const std::string& src, const std::string& dest) {
-  //     diskann::Timer copytimer;
-  //     diskann::cout << "COPY :: " << src << " --> " << dest << "\n";
-  //     std::ofstream dest_writer(dest, std::ios::binary);
-  //     std::ifstream src_reader(src, std::ios::binary);
-  //     dest_writer << src_reader.rdbuf();
-  //     dest_writer.close();
-  //     src_reader.close();
-  //     double e2e_time = ((double) copytimer.elapsed()) / (1000000.0);
-  //     std::cout << "copy_file_time: " << e2e_time << std::endl;
-  //   };
+    if (inMmeorySize >= MERGE_TH) {
+      get_io_info("begin");
+      std::cout << "Begin Merge" << std::endl;
+      merge_kernel<T, TagT>(sync_index, save_path, id_map);
+      get_io_info("end");
+      std::cout << "IO_all" << std::endl;
+      inMmeorySize = 0;
+    }
+    double e2e_time = ((double) batch_timer.elapsed()) / (1000000.0);
+    diskann::cout << "Batch #" << i << " use " << e2e_time << " s."
+                  << std::endl;
+    auto copy_file = [](const std::string& src, const std::string& dest) {
+      diskann::Timer copytimer;
+      diskann::cout << "COPY :: " << src << " --> " << dest << "\n";
+      std::ofstream dest_writer(dest, std::ios::binary);
+      std::ifstream src_reader(src, std::ios::binary);
+      dest_writer << src_reader.rdbuf();
+      dest_writer.close();
+      src_reader.close();
+      double e2e_time = ((double) copytimer.elapsed()) / (1000000.0);
+      std::cout << "copy_file_time: " << e2e_time << std::endl;
+    };
 
-  //   std::string currentFileName =
-  //       truthset_file + std::to_string(i + 1) + ".fbin";
-  //   std::cout << "Current_GT_File: " << currentFileName << std::endl;
-  //   // if ((i + 1) % 10 == 0)
-  //   sync_search_kernel(query, query_num, query_aligned_dim, recall_at,
-  //   Lsearch,
-  //                      sync_index, currentFileName, inactive_tags, res, true,
-  //                      true);
-  // }
+    std::string currentFileName =
+        truthset_file + std::to_string(i + 1) + ".fbin";
+    std::cout << "Current_GT_File: " << currentFileName << std::endl;
+    // if ((i + 1) % 10 == 0)
+    sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
+                       sync_index, currentFileName, inactive_tags, res, true,
+                       true);
+  }
   std::cout << "Update over" << std::endl;
   delete[] data_load;
 }

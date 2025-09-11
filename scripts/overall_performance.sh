@@ -1,6 +1,8 @@
 
 clear
 project_dir=/home/ohdh95/work/DiskANN
+# 상대경로(되는지는 모름)
+# project_dir=..
 id_map=2
 # delete_dir="$project_dir/scripts/indices/sift_R34"
 delete_dir="$project_dir/scripts/indices/sift_R32"
@@ -8,6 +10,10 @@ batchsize=0.001
 find "$delete_dir" -mindepth 1 ! -path "$delete_dir/disk_init*" -exec rm -rf {} +
 
 cp "$delete_dir/disk_init"/* "$delete_dir"/
+cp /home/ohdh95/mnt/_index_pm.index /home/ohdh95/mnt/_index_pm_copy.index
+
+rm -f /home/ohdh95/mnt/_index_pm_tmp.index
+rm -f /home/ohdh95/mnt/_index_disk_tmp.index
 
 rm -r "$delete_dir"/_index_temp
 mkdir "$delete_dir"/_index_temp
@@ -18,15 +24,21 @@ mkdir -p "$delete_dir"/index_temp
 cd /home/ohdh95/work/DiskANN/build && make -j 
 cd /home/ohdh95/work/DiskANN/run
 
+# 상대경로
+# cd ../build && make -j 
+# cd ../run
+
 name=sift
 mydir="/home/ohdh95/work/DiskANN/scripts"
+# 상대경로
+# mydir="."
 index_type="float"
 base_data_file="$mydir"/dataset/"$name"/"$name"_base_95.fbin
 L_mem=75
 # R_mem=34
 R_mem=32
 alpha_mem=1.2
-L_disk=75
+L_disk=128
 # R_disk=34
 R_disk=32
 alpha_disk=1.2

@@ -30,29 +30,29 @@ void open_file_to_write(FILE **writer, const char *filename) {
   }
 }
 
-uint64_t save_bin_test(const char *filename, int *id, size_t npts, size_t ndims,
-                       size_t offset) {
-  FILE *writer;
-  open_file_to_write(&writer, filename);
+// uint64_t save_bin_test(const char *filename, int *id, size_t npts, size_t ndims,
+//                        size_t offset) {
+//   FILE *writer;
+//   open_file_to_write(&writer, filename);
 
-  printf("Writing bin: %s\n", filename);
-  fseek(writer, offset, SEEK_SET);
-  int    npts_i32 = (int) npts, ndims_i32 = (int) ndims;
-  size_t bytes_written = npts * ndims * sizeof(int) + 2 * sizeof(uint32_t);
+//   printf("Writing bin: %s\n", filename);
+//   fseek(writer, offset, SEEK_SET);
+//   int    npts_i32 = (int) npts, ndims_i32 = (int) ndims;
+//   size_t bytes_written = npts * ndims * sizeof(int) + 2 * sizeof(uint32_t);
 
-  fwrite(&npts_i32, sizeof(int), 1, writer);
-  fwrite(&ndims_i32, sizeof(int), 1, writer);
-  printf("bin: #pts = %zu, #dims = %zu, size = %zu B\n", npts, ndims,
-         bytes_written);
+//   fwrite(&npts_i32, sizeof(int), 1, writer);
+//   fwrite(&ndims_i32, sizeof(int), 1, writer);
+//   printf("bin: #pts = %zu, #dims = %zu, size = %zu B\n", npts, ndims,
+//          bytes_written);
 
-  for (size_t i = 0; i < npts; i++) {
-    fwrite(id + i, sizeof(int), 1, writer);
-  }
+//   for (size_t i = 0; i < npts; i++) {
+//     fwrite(id + i, sizeof(int), 1, writer);
+//   }
 
-  fclose(writer);
-  printf("Finished writing bin.\n");
-  return bytes_written;
-}
+//   fclose(writer);
+//   printf("Finished writing bin.\n");
+//   return bytes_written;
+// }
 
 uint64_t save_bin_test_1(const char *filename, int startid, int endid,
                          size_t npts, size_t offset) {
@@ -62,7 +62,7 @@ uint64_t save_bin_test_1(const char *filename, int startid, int endid,
   printf("Writing bin: %s\n", filename);
   fseek(writer, offset, SEEK_SET);
   int    npts_i32 = (uint32_t) npts;
-  size_t bytes_written = npts * sizeof(uint32_t) + sizeof(uint32_t);
+  size_t bytes_written = npts * sizeof(uint32_t) * 2 + sizeof(uint32_t);
   fwrite(&npts_i32, sizeof(uint32_t), 1, writer);
 
   std::cout << "delete_num: " << npts << std::endl;

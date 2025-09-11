@@ -2462,6 +2462,7 @@ namespace diskann {
       _location_to_tag[location] = tag;
     }
 
+    // _data에 point 복사
     auto offset_data = _data + (size_t) _aligned_dim * location;
     memset((void *) offset_data, 0, sizeof(T) * _aligned_dim);
     memcpy((void *) offset_data, point, sizeof(T) * _dim);

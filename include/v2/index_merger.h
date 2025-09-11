@@ -49,7 +49,7 @@ namespace diskann {
         const uint32_t ndims, Distance<T> *dist, diskann::Metric dist_metric,
         const uint32_t beam_width, const uint32_t range, const uint32_t l_index,
         const float alpha, const uint32_t maxc, bool single_file_index,
-        uint32_t id_map = 0);
+        uint32_t id_map = 0, std::vector<uint32_t>* id_disk_map = nullptr);
 
     DISKANN_DLLEXPORT ~StreamingMerger();
 
@@ -61,15 +61,23 @@ namespace diskann {
     // merge all memory indices into the disk index and write out new disk index
     void mergeImpl(uint32_t id_map = 0);
 
-   private:
-    /* insert related funcs */
+    // 내가 옮김
     void process_inserts();
     void process_inserts_pq();
+    void insert_point(T* data_load, TagT insert_id);
+    void set_disk_index(PQFlashIndex<T, TagT>* disk_index) {
+      this->disk_index = disk_index;
+    }
+    void set_disk_thread_data(
+        std::vector<ThreadData<T>> disk_thread_data) {
+      this->disk_thread_data = disk_thread_data;
+    }
+   private:
     void insert_mem_vec(const T *vec, const uint32_t offset_id);
     void offset_iterate_to_fixed_point(
         const T *vec, const uint32_t Lsize,
         std::vector<Neighbor>         &expanded_nodes_info,
-        tsl::robin_map<uint32_t, T *> &coord_map);
+        tsl::robin_map<uint32_t, T *> &coord_map, std::vector<uint32_t>* id_disk_map = nullptr);
     // used to prune insert() edges
     void prune_neighbors(const tsl::robin_map<uint32_t, T *> &coord_map,
                          std::vector<Neighbor>               &pool,
@@ -214,6 +222,7 @@ namespace diskann {
     // vector info
     uint32_t ndims, aligned_ndims;
     // search + index params
+    std::vector<uint32_t>* id_disk_map;
     uint32_t beam_width;
     uint32_t l_index, range, maxc;
     float    alpha;

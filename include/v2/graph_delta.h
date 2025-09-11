@@ -10,6 +10,8 @@ namespace diskann {
   class GraphDelta {
     public:
       GraphDelta(const uint32_t offset, const uint32_t max_nodes);
+
+      ~GraphDelta();
       // inserts node `id` into graph with `nhood` as neighbors 
       // SUCCEEDS ONLY IF `id` belongs to the range [offset, offset + max_nodes]
       void insert_vector(const uint32_t id, const uint32_t*nhood, const uint32_t nnbrs);

@@ -81,7 +81,7 @@ namespace diskann {
       const uint32_t ndims, Distance<T> *dist, diskann::Metric dist_metric,
       const uint32_t beam_width, const uint32_t range, const uint32_t l_index,
       const float alpha, const uint32_t maxc, bool single_file_index,
-      uint32_t id_map) {
+      uint32_t id_map, std::vector<uint32_t>* id_disk_map) {
     // book keeping
     this->ndims = ndims;
 
@@ -95,7 +95,7 @@ namespace diskann {
     this->dist_cmp = dist;
     this->_single_file_index = single_file_index;
     this->id_map = id_map;
-
+    this->id_disk_map = id_disk_map;
     std::cout << "StreamingMerger created with R=" << this->range
               << " L=" << this->l_index << " BW=" << this->beam_width
               << " MaxC=" << this->maxc << " alpha=" << this->alpha
@@ -106,15 +106,15 @@ namespace diskann {
   StreamingMerger<T, TagT>::~StreamingMerger() {
     if (this->disk_index != nullptr)
       delete this->disk_index;
-
-    delete this->disk_delta;
-
+    
+    // if (this->disk_delta != nullptr) {
+    //   delete this->disk_delta;
+    // }
     for (auto &delta : this->mem_deltas) {
       delete delta;
     }
 
     aligned_free((void *) this->thread_pq_scratch);
-
     for (auto &data : this->mem_data) {
       aligned_free((void *) data);
     }
@@ -182,6 +182,45 @@ namespace diskann {
   }
 
   template<typename T, typename TagT>
+  void StreamingMerger<T, TagT>::insert_point(T* data_load, TagT insert_id) {
+    Timer total_insert_timer;
+    this->insert_times.resize(MAX_INSERT_THREADS, 0.0);
+    this->delta_times.resize(MAX_INSERT_THREADS, 0.0);
+
+    std::vector<Neighbor>         pool;
+    tsl::robin_map<uint32_t, T *> coord_map;
+
+    this->offset_iterate_to_fixed_point(data_load, this->l_index, pool,
+                                        coord_map, this->id_disk_map);
+
+    std::vector<uint32_t> new_nhood;
+    prune_neighbors(coord_map, pool, new_nhood);
+    if (new_nhood.size() > range) {
+      std::cout << "***ERROR*** After prune, for insert_id: " << insert_id
+                << " found " << new_nhood.size()
+                << " neighbors instead of range: " << range << std::endl;
+    }
+    // std:: cout << "new_nhood size: " << new_nhood.size() << std::endl;
+    // int i = 0;
+    // for (auto x : new_nhood) {
+    //     std::cout << "new_nhood[" << i << "]: " << x << std::endl;
+    //     i++;
+    // }
+
+    this->disk_index->insert_node(insert_id, data_load, new_nhood);
+    // std:: cout << "coord_map size: " << coord_map.size() << std::endl;
+    // for (auto x : coord_map) {
+    //   std::cout << "x.first: " << x.first << std::endl;
+    //   float* k = (float*)x.second;
+    //   for (int i = 0; i < 128; i++) {
+    //     std::cout << "x.second[" << i << "]: " << k[i] << std::endl;
+    //   }
+    // }
+
+    // std::cout << "tmp_id: " << this->disk_index->tmp_id << std::endl;
+  }
+
+  template<typename T, typename TagT>
   void StreamingMerger<T, TagT>::process_inserts() {
     Timer total_insert_timer;
     this->insert_times.resize(MAX_INSERT_THREADS, 0.0);
@@ -215,8 +254,8 @@ namespace diskann {
       for (int32_t j = 0; j < (int32_t) count; j++) {
         // filter out -- `j` is deleted
         if (j < 0) {
-    std::cerr << "Invalid value of j: " << j << std::endl;
-}
+          std::cerr << "Invalid value of j: " << j << std::endl;
+        }
         if (!deleted_set.empty() && deleted_set.find((uint32_t) j) != deleted_set.end()) {
           continue;
         }
@@ -316,7 +355,7 @@ namespace diskann {
   void StreamingMerger<T, TagT>::offset_iterate_to_fixed_point(
       const T *vec, const uint32_t Lsize,
       std::vector<Neighbor>         &expanded_nodes_info,
-      tsl::robin_map<uint32_t, T *> &coord_map) {
+      tsl::robin_map<uint32_t, T *> &coord_map, std::vector<uint32_t>* id_disk_map) {
     std::vector<Neighbor> exp_node_info;
     exp_node_info.reserve(2 * Lsize);
     tsl::robin_map<uint32_t, T *> cmap;
@@ -338,7 +377,7 @@ namespace diskann {
     cmap.reserve(2 * Lsize);
     this->disk_index->disk_iterate_to_fixed_point(
         vec, Lsize, this->beam_width, exp_node_info, &cmap, nullptr,
-        &thread_data, &this->disk_deleted_ids);
+        &thread_data, &this->disk_deleted_ids, *id_disk_map);
 
     // reduce and pick top maxc expanded nodes only
     std::sort(exp_node_info.begin(), exp_node_info.end());
@@ -1427,7 +1466,7 @@ namespace diskann {
             if (deltas.empty()) {
               continue;
             }
-
+            // 여기부터
             uint32_t nnbrs = disk_node.nnbrs;
             nhood.insert(nhood.end(), disk_node.nbrs, disk_node.nbrs + nnbrs);
             nhood.insert(nhood.end(), deltas.begin(), deltas.end());
@@ -1653,6 +1692,7 @@ namespace diskann {
             this->_single_file_index, true, false);
         _u64 n1, n2, n3;
         T   *data_load;
+        // data_load에 추가한 점 원본 복사
         diskann::load_aligned_bin<T>(data_path, data_load, n1, n2, n3);
         npts = (_u32) (n1 - 1);
         assert(npts < MAX_PTS_PER_MEM_INDEX);

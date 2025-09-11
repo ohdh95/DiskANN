@@ -44,10 +44,12 @@ namespace diskann {
         nullptr;  // MUST BE AT LEAST  [N_CHUNKS * MAX_DEGREE]
     T *    aligned_query_T = nullptr;
     float *aligned_query_float = nullptr;
-
-    void reset() {
+    char *tmp_scratch = nullptr;
+    _u64  tmp_idx = 0;
+    void   reset() {
       coord_idx = 0;
       sector_idx = 0;
+      tmp_idx = 0;
     }
   };
 
@@ -149,6 +151,9 @@ namespace diskann {
     /* diskv2 extra API requirements */
     /* --------------------------------------------------------------------------------------------
      */
+    DISKANN_DLLEXPORT void insert_node(TagT insert_id, T *data_load,
+                                       std::vector<uint32_t> new_nhood);
+
     DISKANN_DLLEXPORT void disk_iterate_to_fixed_point(
         const T *vec, const uint32_t Lsize, const uint32_t beam_width,
         std::vector<Neighbor> &        expanded_nodes_info,
@@ -227,6 +232,10 @@ namespace diskann {
 
     DISKANN_DLLEXPORT int get_vector_by_tag(const TagT &tag, T *vector);
 
+    DISKANN_DLLEXPORT uint32_t *get_mem_index() {
+      return this->mem_index;
+    }
+
     // index info
     // nhood of node `i` is in sector: [i / nnodes_per_sector]
     // offset in sector: [(i % nnodes_per_sector) * max_node_len]
@@ -235,6 +244,7 @@ namespace diskann {
     _u64 max_node_len = 0, nnodes_per_sector = 0, max_degree = 0;
     _u64 disk_nnodes = 0, disk_ndims = 0;
     _u32 cmp_count = 0;
+    _u64 tmp_id = 0;
 
    protected:
     DISKANN_DLLEXPORT void use_medoids_data_as_centroids();
@@ -266,7 +276,12 @@ namespace diskann {
 
     // 이웃 버퍼
     uint32_t *mem_index = nullptr;  // uint32_t[max_degree * disk_nnodes]
-
+    // 버퍼에 있는 벡터 ID
+    std::vector<uint32_t> tmp_ids;  // uint32_t[max_degree * disk_nnodes]
+    // 임시 이웃 버퍼
+    uint32_t *tmp_mem_index = nullptr;  // uint32_t[max_degree * disk_nnodes]
+    // 임시 원본 버퍼
+    uint32_t *tmp_disk_index = nullptr;  // uint32_t[max_degree * disk_nnodes]
     // distance comparator
     std::shared_ptr<Distance<T>>     dist_cmp;
     std::shared_ptr<Distance<float>> dist_cmp_float;

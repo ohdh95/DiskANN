@@ -1,4 +1,6 @@
 project_dir=/home/ohdh95/work/DiskANN
+# 상대경로(되는지는 모름)
+# project_dir=..
 # Part1: build_disk_index_R32 for FreshDiskANN
 
 dataset=sift

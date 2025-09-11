@@ -143,10 +143,13 @@ namespace diskann {
     uint32_t l_index = _paras_disk.Get<unsigned>("L");
     uint32_t maxc = _paras_disk.Get<unsigned>("C");
     float    alpha = _paras_disk.Get<float>("alpha");
-    if (id_map)
+    if (id_map) {
       _merger = new diskann::StreamingMerger<T, TagT>(
           (uint32_t) _dim, _dist_comp, _dist_metric, (uint32_t) _beamwidth,
-          range, l_index, alpha, maxc, _single_file_index, id_map);
+          range, l_index, alpha, maxc, _single_file_index, id_map, &id_disk_map);
+
+      _merger->set_disk_index(this->get_disk_index());
+      }
     else
       _merger = new diskann::StreamingMerger<T, TagT>(
           (uint32_t) _dim, _dist_comp, _dist_metric, (uint32_t) _beamwidth,
@@ -227,14 +230,15 @@ namespace diskann {
                        "it cannot accept deletions"
                     << std::endl;
     }
-
-    if (_active_delete_set == 0) {
-      _deletion_set_0.insert(tag);
-      _mem_index_0->lazy_delete(tag);
-    } else {
-      _deletion_set_1.insert(tag);
-      _mem_index_1->lazy_delete(tag);
-    }
+    uint32_t* closest_nnbr = this->get_disk_index()->get_mem_index() + tag * (this->get_disk_index()->max_degree + 1) + 1;
+    id_disk_map[tag] = *closest_nnbr; // 가장 가까운 id로 변경
+    // if (_active_delete_set == 0) {
+    //   _deletion_set_0.insert(tag);
+    //   _mem_index_0->lazy_delete(tag);
+    // } else {
+    //   _deletion_set_1.insert(tag);
+    //   _mem_index_1->lazy_delete(tag);
+    // }
   }
 
   template<typename T, typename TagT>

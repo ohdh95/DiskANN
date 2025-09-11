@@ -66,12 +66,25 @@ namespace diskann {
     DISKANN_DLLEXPORT std::string ret_merge_prefix();
     std::string                   _disk_index_prefix_out;
 
-   protected:
     // call constructor to StreamingMerger object
     void construct_index_merger(uint32_t id_map = 0);
 
     // call StreamingMerger destructor to explicitly de-register threads
     void destruct_index_merger();
+
+    // call merge on a StreamingMerger object, only if index switching and
+    // saving is successful
+    void                   merge(uint32_t id_map = 0);
+
+    PQFlashIndex<T, TagT>* get_disk_index() {
+      return _disk_index;
+    }
+
+    StreamingMerger<T, TagT>* get_merger() {
+      return _merger;
+    }
+
+   protected:
 
     //_active_index flag will be modified only inside this function
     void switch_index(
@@ -85,12 +98,8 @@ namespace diskann {
     // make a local copy of _deletion_set and save it to a _deleted_tags_file
     void save_del_set();
 
-    // call merge on a StreamingMerger object, only if index switching and
-    // saving is successful
-    void                   merge(uint32_t id_map = 0);
-    PQFlashIndex<T, TagT>* get_disk_index() {
-      return _disk_index;
-    }
+    
+    
 
    private:
     size_t   _merge_th = 0;

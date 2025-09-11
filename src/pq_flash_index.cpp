@@ -228,6 +228,8 @@ namespace diskann {
         diskann::alloc_aligned((void **) &scratch.aligned_query_float,
                                this->aligned_dim * sizeof(float),
                                8 * sizeof(float));
+        diskann::alloc_aligned((void **) &scratch.tmp_scratch,
+                               MAX_N_SECTOR_READS * this->aligned_dim * sizeof(T), this->aligned_dim * sizeof(T));
 
         memset(scratch.sector_scratch, 0, MAX_N_SECTOR_READS * SECTOR_LEN);
         memset(scratch.aligned_scratch, 0, 256 * sizeof(float));
@@ -235,6 +237,7 @@ namespace diskann {
         memset(scratch.aligned_query_T, 0, this->aligned_dim * sizeof(T));
         memset(scratch.aligned_query_float, 0,
                this->aligned_dim * sizeof(float));
+        memset(scratch.tmp_scratch, 0, MAX_N_SECTOR_READS * this->aligned_dim * sizeof(T));
 
         ThreadData<T> data;
         data.ctx = ctx;
@@ -589,7 +592,8 @@ namespace diskann {
                                   bool new_index_format) {
 #endif
     std::string pq_table_bin, pq_compressed_vectors, disk_index_file,
-        medoids_file, centroids_file, pm_prefix, pm_index_file, index_name;
+        medoids_file, centroids_file, pm_prefix, pm_index_file, index_name,
+        tmp_pm_index_name, tmp_disk_index_name;
 
     if (false == this->single_index_file) {
       std::string iprefix = std::string(index_prefix);
@@ -601,8 +605,10 @@ namespace diskann {
       centroids_file = disk_index_file + "_centroids.bin";
       pm_prefix = "/home/ohdh95/mnt/";
       index_name = iprefix.substr(iprefix.find_last_of('/') + 1);
-      pm_index_file = pm_prefix + index_name + "_pm.index";
+      pm_index_file = pm_prefix + index_name + "_pm_copy.index";
       std::cout << "PM Index file: " << pm_index_file << std::endl;
+      tmp_pm_index_name = pm_prefix + index_name + "_pm_tmp.index";
+      tmp_disk_index_name = pm_prefix + index_name + "_disk_tmp.index";
     } else {
       // Since incremental index which uses single file index is never
       // a result of merging multiple indices, we won't have medoids
@@ -863,6 +869,37 @@ namespace diskann {
       std::cout << "mem_index + 72" << std::endl;
     }
 
+    if (this->tmp_mem_index == nullptr) {
+      size_t tmp_len =
+          (this->max_degree + 1) * disk_nnodes * 0.1 * sizeof(uint32_t);
+
+      this->tmp_mem_index = (uint32_t *) pmem_map_file(
+          tmp_pm_index_name.c_str(), tmp_len, PMEM_FILE_CREATE, 0666,
+          &mapped_len, &is_pmem);
+
+      if (this->tmp_mem_index == nullptr) {
+        perror("tmp_pmem_map_file failed");
+        throw std::runtime_error("Failed to mmap mem_index_file");
+      }
+
+      std::cout << "tmp_disk_index success" << std::endl;
+    }
+
+    if (this->tmp_disk_index == nullptr) {
+      size_t tmp_len = this->data_dim * disk_nnodes * 0.1 * sizeof(T);
+
+      this->tmp_disk_index = (uint32_t *) pmem_map_file(
+          tmp_disk_index_name.c_str(), tmp_len, PMEM_FILE_CREATE, 0666,
+          &mapped_len, &is_pmem);
+
+      if (this->tmp_disk_index == nullptr) {
+        perror("pmem_map_file failed");
+        throw std::runtime_error("Failed to mmap mem_index_file");
+      }
+
+      std::cout << "tmp_disk_index success" << std::endl;
+    }
+
     // load tags
     if (this->enable_tags) {
       diskann::cout << "Loading tags...";
@@ -1007,6 +1044,31 @@ namespace diskann {
   }
 
   template<typename T, typename TagT>
+  void PQFlashIndex<T, TagT>::insert_node(TagT insert_id, T *data_load,
+                                          std::vector<uint32_t> new_nhood) {
+    memcpy(this->tmp_disk_index + (this->data_dim * sizeof(T) * this->tmp_id),
+           data_load, this->data_dim * sizeof(T));
+
+    uint32_t *nbr_copy = new uint32_t[this->max_degree + 1];
+
+    nbr_copy[0] = new_nhood.size();
+
+    for (int i = 1; i < new_nhood.size() + 1; i++) {
+      nbr_copy[i] = new_nhood[i - 1];
+    }
+
+    for (int i = new_nhood.size(); i < this->max_degree + 1; i++) {
+      nbr_copy[i] = 0;
+    }
+
+    memcpy(this->tmp_mem_index +
+               (this->max_degree + 1) * sizeof(TagT) * this->tmp_id,
+           nbr_copy, (this->max_degree + 1) * sizeof(TagT));
+
+    tmp_id++;
+  }
+
+  template<typename T, typename TagT>
   void PQFlashIndex<T, TagT>::disk_iterate_to_fixed_point(
       const T *query1, const uint32_t l_search, const uint32_t beam_width,
       std::vector<Neighbor> &        expanded_nodes_info,
@@ -1015,6 +1077,7 @@ namespace diskann {
       std::vector<uint32_t> id_disk_map) {
     // only pull from sector scratch if ThreadData<T> not passed as arg
     if (id_disk_map.size() == 0) {
+      std::cout << "id_disk_map size: " << id_disk_map.size() << std::endl;
       auto          diskSearchBegin = std::chrono::high_resolution_clock::now();
       ThreadData<T> data;
       if (passthrough_data == nullptr) {
@@ -1414,7 +1477,7 @@ namespace diskann {
     else {
       // coord_map 비어있음
       // only pull from sector scratch if ThreadData<T> not passed as arg
-      // std::cout << "id_disk_map size: " << id_disk_map.size() << std::endl;
+
       auto          diskSearchBegin = std::chrono::high_resolution_clock::now();
       ThreadData<T> data;
       if (passthrough_data == nullptr) {
@@ -1475,6 +1538,9 @@ namespace diskann {
       char *sector_scratch = query_scratch->sector_scratch;
       _u64 &sector_scratch_idx = query_scratch->sector_idx;
 
+      // tmp scratch
+      char *tmp_scratch = query_scratch->tmp_scratch;
+      _u64 &tmp_scratch_idx = query_scratch->tmp_idx;
       // query <-> PQ chunk centers distances
       // pq_dists에 쿼리의 각 청크과 256개의 pq 중심점과의 거리 저장, output =
       // [dist(chunk1, centroid1_1), dist(chunk1, centroid1_2), ...dist(chunk1,
@@ -1555,6 +1621,7 @@ namespace diskann {
         frontier_read_reqs.clear();
         cached_nhoods.clear();
         sector_scratch_idx = 0;
+        tmp_scratch_idx = 0;
         // find new beam
         // WAS: _u64 marker = k - 1;
         _u32 marker = k;
@@ -1565,11 +1632,6 @@ namespace diskann {
                num_seen < beam_width) {
           if (retset[marker].flag) {
             num_seen++;
-            // nhood_cache: <id,<hood_num,vector_hood>>
-            if (id_disk_map[retset[marker].id] != retset[marker].id) {
-              std::cout << "비이이이이이이사아아아아앙:retset[marker].id"
-                        << std::endl;
-            }
             auto iter = nhood_cache.find(id_disk_map[retset[marker].id]);
             if (iter != nhood_cache.end()) {
               cached_nhoods.push_back(
@@ -1598,10 +1660,6 @@ namespace diskann {
 
           // std::vector<uint32_t> lock_pageid;
           for (_u64 i = 0; i < frontier.size(); i++) {
-            if (id_disk_map[frontier[i]] != frontier[i]) {
-              std::cout << "비이이이이이이사아아아아앙:frontier[i]"
-                        << std::endl;
-            }
             auto                    id = id_disk_map[frontier[i]];
             std::pair<_u32, char *> fnhood;
             fnhood.first = id;
@@ -1612,9 +1670,19 @@ namespace diskann {
             frontier_nhoods.push_back(fnhood);
             // uint32_t pageid = 1 + id / this->nnodes_per_sector;
             // lock_pageid.push_back(pageid);
-            frontier_read_reqs.emplace_back(
-                (id / (SECTOR_LEN / (this->data_dim * sizeof(T)))) * SECTOR_LEN,
-                SECTOR_LEN, fnhood.second);
+            if (fnhood.first < this->disk_nnodes) {
+              frontier_read_reqs.emplace_back(
+                  (id / (SECTOR_LEN / (this->data_dim * sizeof(T)))) *
+                      SECTOR_LEN,
+                  SECTOR_LEN, fnhood.second);
+            }
+
+            else {
+              memcpy(fnhood.second,
+                     this->tmp_disk_index + (fnhood.first - this->disk_nnodes) *
+                                                this->data_dim * sizeof(T),
+                     this->data_dim * sizeof(T));
+            }
 
             if (stats != nullptr) {
               stats->n_4k++;
@@ -1632,8 +1700,11 @@ namespace diskann {
           //         reader->read(frontier_read_reqs, ctx, true);  // async
           //         reader windows.
           // #else
-          reader->read(frontier_read_reqs, ctx, false);  // synchronous IO linux
-                                                         // #endif
+          if (frontier_read_reqs.size() > 0) {
+            reader->read(frontier_read_reqs, ctx,
+                         false);  // synchronous IO linux
+          }
+          // #endif
 
           // 结束读锁
           // for (auto &pageid : lock_pageid) {
@@ -1672,19 +1743,11 @@ namespace diskann {
                                            cur_expanded_dist, true));
             // std::cout << "Node #" << cached_nhood.first
             //           << " 's dist: " << cur_expanded_dist << std::endl;
-          } else {
-            // std::cout <<
-            // "비이이이이이이이사아아아아아아아앙~~~~~~~~~~~~~~~~~~\nexclude_nodes
-            // not null" << std::endl;
           }
           _u64      nnbrs = cached_nhood.second.first;       // 이웃 개수
           unsigned *node_nbrs = cached_nhood.second.second;  // 이웃 버퍼
 
           for (int i = 0; i < nnbrs; i++) {
-            if (id_disk_map[node_nbrs[i]] != node_nbrs[i]) {
-              std::cout << "비이이이이이이사아아아아앙:node_nbrs[i]"
-                        << std::endl;
-            }
             node_nbrs[i] = id_disk_map[node_nbrs[i]];
           }
 
@@ -1723,40 +1786,43 @@ namespace diskann {
             }
           }
         }
-        // #ifdef USE_BING_INFRA
-        //       // process each frontier nhood - compute distances to unvisited
-        //       nodes int completedIndex = -1;
-        //       // If we issued read requests and if a read is complete or
-        //       there are reads
-        //       // in wait
-        //       // state, then enter the while loop.
-        //       while (frontier_read_reqs.size() > 0 &&
-        //              getNextCompletedRequest(ctx, frontier_read_reqs.size(),
-        //                                      completedIndex)) {
-        //         if (completedIndex == -1) {  // all reads are waiting
-        //           continue;
-        //         }
-        //         auto &frontier_nhood = frontier_nhoods[completedIndex];
-        //         (*ctx.m_pRequestsStatus)[completedIndex] =
-        //         IOContext::PROCESS_COMPLETE;
-        // #else
 
         for (auto &frontier_nhood : frontier_nhoods) {
           // #endif
-          char *node_disk_buf =
-              (char *) (frontier_nhood.second +
-                        (frontier_nhood.first %
-                         (SECTOR_LEN / (this->data_dim * sizeof(T)))) *
-                            sizeof(T) * this->data_dim);
-          // OFFSET_TO_NODE(
-          //     frontier_nhood.second,
-          //     frontier_nhood
-          //         .first);  // node_disk_buf: 읽어온 전체 중 해당 ID 시작
-          //         지점
-          unsigned *node_buf =
-              this->mem_index + (frontier_nhood.first) * (this->max_degree + 1);
-          // OFFSET_TO_NODE_NHOOD(
-          //     node_disk_buf);  // node_buf: 이웃 개수 + 이웃 버퍼(원본 제외)
+          char *
+              node_disk_buf;  // node_disk_buf: 읽어온 전체 중 해당 ID 시작 지점
+          if (frontier_nhood.first < this->disk_nnodes) {
+            node_disk_buf =
+                (char *) (frontier_nhood.second +
+                          (frontier_nhood.first %
+                           (SECTOR_LEN / (this->data_dim * sizeof(T)))) *
+                              sizeof(T) * this->data_dim);
+          }
+
+          else {
+            node_disk_buf = (char *) frontier_nhood.second;
+          }
+          // OFFSET_TO_NODE(frontier_nhood.second, frontier_nhood.first);
+          unsigned *node_buf;  // 이웃 개수 + 이웃 버퍼(원본 제외)
+          // new unsigned[(this->max_degree + 1)];
+
+          if (frontier_nhood.first < this->disk_nnodes) {
+            node_buf = this->mem_index +
+                       (frontier_nhood.first) * (this->max_degree + 1);
+            // memcpy(node_buf,
+            //        this->mem_index + (frontier_nhood.first) *
+            //                              (this->max_degree + 1) *
+            //                              sizeof(TagT),
+            //        (this->max_degree + 1) * sizeof(TagT));
+            // OFFSET_TO_NODE_NHOOD(node_disk_buf);
+          }
+
+          else {
+            node_buf = this->tmp_mem_index +
+                       (frontier_nhood.first - this->disk_nnodes) *
+                           (this->max_degree + 1);
+          }
+
           _u64 nnbrs = (_u64)(*node_buf);  // nnbrs: 이웃 개수
           T *  node_fp_coords = OFFSET_TO_NODE_COORDS(
               node_disk_buf);  // node_disk_buf를 T*로 변환
@@ -1771,9 +1837,6 @@ namespace diskann {
               (unsigned) aligned_dim);  // 쿼리 - frontier 실제 거리
           bool exclude_cur_node = false;
           if (exclude_nodes != nullptr) {
-            // std::cout <<
-            // "비이이이이이이이사아아아아아아아앙~~~~~~~~~~~~~~~~~~\nexclude_nodes
-            // not null" << std::endl;
             exclude_cur_node = (exclude_nodes->find(frontier_nhood.first) !=
                                 exclude_nodes->end());
           }
@@ -1788,17 +1851,9 @@ namespace diskann {
                 Neighbor(frontier_nhood.first, cur_expanded_dist, true));
             // std::cout << "Node #" << frontier_nhood.first
             //           << " 's dist: " << cur_expanded_dist << std::endl;
-          } else {
-            // std::cout <<
-            // "비이이이이이이이사아아아아아아아앙~~~~~~~~~~~~~~~~~~\nexclude_nodes
-            // not null" << std::endl;
           }
           unsigned *node_nbrs = (node_buf + 1);
           for (int i = 0; i < nnbrs; i++) {
-            if (id_disk_map[node_nbrs[i]] != node_nbrs[i]) {
-              std::cout << "비이이이이이이사아아아아앙:node_nbrs[i]"
-                        << std::endl;
-            }
             node_nbrs[i] = id_disk_map[node_nbrs[i]];
           }
           // compute node_nbrs <-> query dist in PQ space
@@ -1813,14 +1868,9 @@ namespace diskann {
           // process prefetch-ed nhood
           for (_u64 m = 0; m < nnbrs; ++m) {
             unsigned id = node_nbrs[m];
-            // unsigned id = id_disk_map[node_nbrs[m]]; // 안해도 되나??
             if (visited.find(id) != visited.end()) {
               continue;
             } else {
-              // 없어도 되나??
-              // if (id_disk_map[node_nbrs[m]] != node_nbrs[m]) {
-              //   visited.insert(node_nbrs[m]);
-              // }
               visited.insert(id);
               cmps++;
               float dist = dist_scratch[m];
@@ -1846,6 +1896,8 @@ namespace diskann {
           if (stats != nullptr) {
             stats->cpu_us += (double) cpu_timer.elapsed();
           }
+
+          // delete[] node_buf;
         }
 
         // update best inserted position

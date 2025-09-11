@@ -16,6 +16,10 @@ namespace diskann {
     this->locks = std::make_unique<std::mutex[]>(max_nodes);
   }
 
+  GraphDelta::~GraphDelta() {
+    std::cout << "start" << std::endl;
+  }
+
   bool GraphDelta::is_relevant(const uint32_t id) {
     return (id < offset + max_nodes && id >= offset);
   }
