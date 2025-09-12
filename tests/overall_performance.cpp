@@ -160,7 +160,7 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
                         diskann::MergeInsert<T, TagT>& sync_index,
                         std::string&                   truthset_file,
                         tsl::robin_set<TagT>& inactive_tags, int curCount,
-                        bool merged, bool calRecall) {
+                        bool merged, bool calRecall, int flag = 0) {
   auto search_timer = std::chrono::high_resolution_clock::now();
 
   unsigned* gt_ids = NULL;
@@ -196,15 +196,146 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
   std::cout << "==============================================================="
                "==============="
             << std::endl;
+
   auto s = std::chrono::high_resolution_clock::now();
+  std::cout << "query_num: " << query_num << std::endl;
 #pragma omp parallel for num_threads(NUM_SEARCH_THREADS)
   for (int64_t i = 0; i < (int64_t) query_num; i++) {
+    if (flag)
+      std::cout << "?" << std::endl;
     auto qs = std::chrono::high_resolution_clock::now();
-
+    if (flag)
+      std::cout << "!" << std::endl;
     stats[i].n_current_used = std::numeric_limits<double>::max();
+    if (flag)
+      std::cout << "&" << std::endl;
     sync_index.search_sync(query + i * query_aligned_dim, recall_at, L,
                            query_result_tags + i * recall_at,
-                           query_result_dists + i * recall_at, stats + i);
+                           query_result_dists + i * recall_at, stats + i, flag);
+
+    auto qe = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff = qe - qs;
+    latency_stats[i] = diff.count() * 1000;
+  }
+  auto e = std::chrono::high_resolution_clock::now();
+
+  std::chrono::duration<double> diff = e - s;
+  float                         qps = (query_num / diff.count());
+  float                         recall = 0;
+
+  int current_time = globalTimer.elapsed() / 1.0e6f - begin_time;
+  if (calRecall) {
+    if (merged) {
+      std::string cur_result_path =
+          "/home/ohdh95/work/Cout/overall_res/"
+          "result_overall_diskann" +
+          std::to_string(current_time) + "merged.bin";
+      save_bin_test<TagT>(cur_result_path, query_result_tags,
+                          query_result_dists, query_num, recall_at);
+    } else {
+      std::string cur_result_path =
+          "/home/ohdh95/work/Cout/overall_res/"
+          "result_overall_diskann" +
+          std::to_string(current_time) + ".bin";
+      save_bin_test<TagT>(cur_result_path, query_result_tags,
+                          query_result_dists, query_num, recall_at);
+    }
+
+    recall = diskann::calculate_recall(query_num, gt_ids, gt_dists, gt_dim,
+                                       query_result_tags, recall_at, recall_at,
+                                       inactive_tags);
+  }
+
+  auto search_time = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_search = search_time - search_timer;
+  std::cout << "search current time: " << diff_search.count()
+            << " search use time: " << diff.count() << " recall compute use "
+            << diff_search.count() - diff.count() << std::endl;
+
+  float mean_ios = (float) diskann::get_mean_stats(
+      stats, query_num,
+      [](const diskann::QueryStats& stats) { return stats.n_ios; });
+
+  std::sort(latency_stats.begin(), latency_stats.end());
+  std::cout << std::setw(4) << L << std::setw(12) << qps << std::setw(18)
+            << ((float) std::accumulate(latency_stats.begin(),
+                                        latency_stats.end(), 0)) /
+                   (float) query_num
+            << std::setw(12)
+            << (float) latency_stats[(_u64)(0.50 * ((double) query_num))]
+            << std::setw(12)
+            << (float) latency_stats[(_u64)(0.90 * ((double) query_num))]
+            << std::setw(12)
+            << (float) latency_stats[(_u64)(0.95 * ((double) query_num))]
+            << std::setw(12)
+            << (float) latency_stats[(_u64)(0.99 * ((double) query_num))]
+            << std::setw(12)
+            << (float) latency_stats[(_u64)(0.999 * ((double) query_num))]
+            << std::setw(12) << recall << std::setw(12) << mean_ios
+            << std::endl;
+
+  delete[] query_result_dists;
+  delete[] query_result_tags;
+}
+
+template<typename T, typename TagT>
+void _sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
+                         const int recall_at, _u64 L,
+                         diskann::MergeInsert<T, TagT>& sync_index,
+                         std::string&                   truthset_file,
+                         tsl::robin_set<TagT>& inactive_tags, int curCount,
+                         bool merged, bool calRecall, int flag = 0) {
+  auto search_timer = std::chrono::high_resolution_clock::now();
+
+  unsigned* gt_ids = NULL;
+  float*    gt_dists = NULL;
+  unsigned* gt_tags = nullptr;
+  size_t    gt_num, gt_dim;
+
+  if (calRecall) {
+    std::cout << "current truthfile: " << truthset_file << std::endl;
+    diskann::load_truthset(truthset_file, gt_ids, gt_dists, gt_num, gt_dim,
+                           &gt_tags);
+    std::cout << "load truthset over!!" << std::endl;
+  }
+  float* query_result_dists = new float[recall_at * query_num];
+  TagT*  query_result_tags = new TagT[recall_at * query_num];
+
+  for (_u32 q = 0; q < query_num; q++) {
+    for (_u32 r = 0; r < (_u32) recall_at; r++) {
+      query_result_tags[q * recall_at + r] = std::numeric_limits<TagT>::max();
+      query_result_dists[q * recall_at + r] = std::numeric_limits<float>::max();
+    }
+  }
+
+  std::vector<double>  latency_stats(query_num, 0);
+  diskann::QueryStats* stats = new diskann::QueryStats[query_num];
+  std::string          recall_string = "Recall@" + std::to_string(recall_at);
+  std::cout << std::setw(4) << "Ls" << std::setw(12) << "QPS " << std::setw(18)
+            << "Mean Latency (ms)" << std::setw(12) << "50 Latency"
+            << std::setw(12) << "90 Latency" << std::setw(12) << "95 Latency"
+            << std::setw(12) << "99 Latency" << std::setw(12) << "99.9 Latency"
+            << std::setw(12) << recall_string << std::setw(12)
+            << "Mean disk IOs" << std::endl;
+  std::cout << "==============================================================="
+               "==============="
+            << std::endl;
+
+  auto s = std::chrono::high_resolution_clock::now();
+  std::cout << "query_num: " << query_num << std::endl;
+  // #pragma omp parallel for num_threads(NUM_SEARCH_THREADS)
+  for (int64_t i = 0; i < (int64_t) query_num; i++) {
+    if (flag)
+      std::cout << "?" << std::endl;
+    auto qs = std::chrono::high_resolution_clock::now();
+    if (flag)
+      std::cout << "!" << std::endl;
+    stats[i].n_current_used = std::numeric_limits<double>::max();
+    if (flag)
+      std::cout << "&" << std::endl;
+    sync_index.search_sync(query + i * query_aligned_dim, recall_at, L,
+                           query_result_tags + i * recall_at,
+                           query_result_dists + i * recall_at, stats + i, flag);
 
     auto qe = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = qe - qs;
@@ -343,6 +474,8 @@ void insertion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
       sync_index.get_disk_index()->get_thread_data());
   // #pragma omp parallel for num_threads(NUM_INSERT_THREADS)
   for (_s64 i = 0; i < (_s64) insert_vec.size(); i++) {
+    std::cout << "Inserting " << i << "-th / " << insert_vec.size()
+              << " point with id=" << insert_vec[i] << std::endl;
     diskann::Timer insert_timer;
     // sync_index.insert(data_load + aligned_dim * i, insert_vec[i]); // (원본
     // 데이터, id)
@@ -352,7 +485,7 @@ void insertion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
     insert_latencies[i] = ((double) insert_timer.elapsed());
   }
   std::cout << "Waiting for all insert to finish" << std::endl;
-  sync_index.destruct_index_merger();
+  // sync_index.destruct_index_merger();
   std::cout << "Waiting for all insert to finish!" << std::endl;
   float time_secs = timer.elapsed() / 1.0e6f;
   std::sort(insert_latencies.begin(), insert_latencies.end());
@@ -506,7 +639,7 @@ void update(const std::string& data_path, const unsigned L_mem,
     get_trace<T, TagT>(inactive_tags, delete_vec, insert_vec, trace_file_name,
                        data_load, all_data, dim, aligned_dim);
 
-    // deletion_kernel(data_load, sync_index, delete_vec, aligned_dim, L_mem);
+    deletion_kernel(data_load, sync_index, delete_vec, aligned_dim, L_mem);
     std::cout << "_________________________Over_deletion_kernel________________"
                  "_________"
               << std::endl;
@@ -518,14 +651,14 @@ void update(const std::string& data_path, const unsigned L_mem,
 
     inMmeorySize += insert_vec.size();
 
-    if (inMmeorySize >= MERGE_TH) {
-      get_io_info("begin");
-      std::cout << "Begin Merge" << std::endl;
-      merge_kernel<T, TagT>(sync_index, save_path, id_map);
-      get_io_info("end");
-      std::cout << "IO_all" << std::endl;
-      inMmeorySize = 0;
-    }
+    // if (inMmeorySize >= MERGE_TH) {
+    //   get_io_info("begin");
+    //   std::cout << "Begin Merge" << std::endl;
+    //   merge_kernel<T, TagT>(sync_index, save_path, id_map);
+    //   get_io_info("end");
+    //   std::cout << "IO_all" << std::endl;
+    //   inMmeorySize = 0;
+    // }
     double e2e_time = ((double) batch_timer.elapsed()) / (1000000.0);
     diskann::cout << "Batch #" << i << " use " << e2e_time << " s."
                   << std::endl;
@@ -547,7 +680,7 @@ void update(const std::string& data_path, const unsigned L_mem,
     // if ((i + 1) % 10 == 0)
     sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
                        sync_index, currentFileName, inactive_tags, res, true,
-                       true);
+                       true, 0);
   }
   std::cout << "Update over" << std::endl;
   delete[] data_load;

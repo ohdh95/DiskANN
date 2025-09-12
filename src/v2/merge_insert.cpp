@@ -244,7 +244,7 @@ namespace diskann {
   template<typename T, typename TagT>
   void MergeInsert<T, TagT>::search_sync(const T* query, const uint64_t K,
                                          const uint64_t search_L, TagT* tags,
-                                         float* distances, QueryStats* stats) {
+                                         float* distances, QueryStats* stats, int debug) {
     auto diskSearchBegin = std::chrono::high_resolution_clock::now();
     bool reachLimit = false;
     std::set<Neighbor_Tag<TagT>> best;
@@ -259,7 +259,7 @@ namespace diskann {
       std::vector<TagT>     disk_result_tags(search_L);
       int                   searchNum = _disk_index->cached_beam_search(
           query, search_L, search_L, disk_result_tags.data(),
-          disk_result_dists.data(), _beamwidth, stats, this->id_disk_map);
+          disk_result_dists.data(), _beamwidth, stats, this->id_disk_map, debug);
       // std::cout << "searchNUM: " << searchNum << std::endl;
       auto   diskSearchEnd = std::chrono::high_resolution_clock::now();
       double elapsedSeconds =

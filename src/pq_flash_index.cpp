@@ -228,8 +228,10 @@ namespace diskann {
         diskann::alloc_aligned((void **) &scratch.aligned_query_float,
                                this->aligned_dim * sizeof(float),
                                8 * sizeof(float));
-        diskann::alloc_aligned((void **) &scratch.tmp_scratch,
-                               MAX_N_SECTOR_READS * this->aligned_dim * sizeof(T), this->aligned_dim * sizeof(T));
+        diskann::alloc_aligned(
+            (void **) &scratch.tmp_scratch,
+            MAX_N_SECTOR_READS * this->aligned_dim * sizeof(T),
+            this->aligned_dim * sizeof(T));
 
         memset(scratch.sector_scratch, 0, MAX_N_SECTOR_READS * SECTOR_LEN);
         memset(scratch.aligned_scratch, 0, 256 * sizeof(float));
@@ -237,7 +239,8 @@ namespace diskann {
         memset(scratch.aligned_query_T, 0, this->aligned_dim * sizeof(T));
         memset(scratch.aligned_query_float, 0,
                this->aligned_dim * sizeof(float));
-        memset(scratch.tmp_scratch, 0, MAX_N_SECTOR_READS * this->aligned_dim * sizeof(T));
+        memset(scratch.tmp_scratch, 0,
+               MAX_N_SECTOR_READS * this->aligned_dim * sizeof(T));
 
         ThreadData<T> data;
         data.ctx = ctx;
@@ -981,7 +984,7 @@ namespace diskann {
   size_t PQFlashIndex<T, TagT>::cached_beam_search(
       const T *query, const _u64 k_search, const _u64 l_search, TagT *res_tags,
       float *distances, const _u64 beam_width, QueryStats *stats,
-      std::vector<uint32_t> id_disk_map) {
+      std::vector<uint32_t> id_disk_map, int debug) {
     // iterate to fixed point
     std::vector<Neighbor> expanded_nodes_info;
     expanded_nodes_info.reserve(2 * l_search);
@@ -989,7 +992,7 @@ namespace diskann {
 
     this->disk_iterate_to_fixed_point(query, (_u32) l_search, (_u32) beam_width,
                                       expanded_nodes_info, &coord_map, stats,
-                                      nullptr, nullptr, id_disk_map);
+                                      nullptr, nullptr, id_disk_map, debug);
     // fill in `indices`, `distances`
 
     _u64 res_count = 0;
@@ -1065,6 +1068,7 @@ namespace diskann {
                (this->max_degree + 1) * sizeof(TagT) * this->tmp_id,
            nbr_copy, (this->max_degree + 1) * sizeof(TagT));
 
+    delete[] nbr_copy;
     tmp_id++;
   }
 
@@ -1074,7 +1078,7 @@ namespace diskann {
       std::vector<Neighbor> &        expanded_nodes_info,
       tsl::robin_map<uint32_t, T *> *coord_map, QueryStats *stats,
       ThreadData<T> *passthrough_data, tsl::robin_set<uint32_t> *exclude_nodes,
-      std::vector<uint32_t> id_disk_map) {
+      std::vector<uint32_t> id_disk_map, int debug) {
     // only pull from sector scratch if ThreadData<T> not passed as arg
     if (id_disk_map.size() == 0) {
       std::cout << "id_disk_map size: " << id_disk_map.size() << std::endl;
@@ -1477,10 +1481,13 @@ namespace diskann {
     else {
       // coord_map 비어있음
       // only pull from sector scratch if ThreadData<T> not passed as arg
-
+      if (debug)
+        std::cout << "1" << std::endl;
       auto          diskSearchBegin = std::chrono::high_resolution_clock::now();
       ThreadData<T> data;
       if (passthrough_data == nullptr) {
+        if (debug)
+          std::cout << "여기로 오긴 함?";
         data = this->thread_data.pop();
         while (data.scratch.sector_scratch == nullptr) {
           this->thread_data.wait_for_push_notify();
@@ -1488,9 +1495,12 @@ namespace diskann {
         }
 
       } else {
+        if (debug)
+          std::cout << "여기로 오긴 함??";
         data = *passthrough_data;
       }
-
+      if (debug)
+        std::cout << "2" << std::endl;
       // 일단 패스
       if (data_is_normalized) {
         std::cout << "data_is_normalized start" << std::endl;
@@ -1509,6 +1519,7 @@ namespace diskann {
       else {
         // data.scratch.aligned_query_float, data.scratch.aligned_query_T에
         // query1 복사
+
         for (uint32_t i = 0; i < this->data_dim; i++) {
           data.scratch.aligned_query_float[i] = query1[i];
         }
@@ -1516,6 +1527,8 @@ namespace diskann {
         memcpy(data.scratch.aligned_query_T, query1,
                this->data_dim * sizeof(T));
       }
+      if (debug)
+        std::cout << "3" << std::endl;
       const T *    query = data.scratch.aligned_query_T;
       const float *query_float = data.scratch.aligned_query_float;
 
@@ -1541,13 +1554,20 @@ namespace diskann {
       // tmp scratch
       char *tmp_scratch = query_scratch->tmp_scratch;
       _u64 &tmp_scratch_idx = query_scratch->tmp_idx;
+
       // query <-> PQ chunk centers distances
       // pq_dists에 쿼리의 각 청크과 256개의 pq 중심점과의 거리 저장, output =
       // [dist(chunk1, centroid1_1), dist(chunk1, centroid1_2), ...dist(chunk1,
       // centroid1_256), dist(chunk2, centroid2_1), ...dist(chunk2,
       // centroid2_256), ... dist(chunk32, centroid32_256)]
+      if (debug)
+        std::cout << "4" << std::endl;
       float *pq_dists = query_scratch->aligned_pqtable_dist_scratch;
-      pq_table.populate_chunk_distances(query, pq_dists);
+      if (debug)
+        std::cout << "5" << std::endl;
+      pq_table.populate_chunk_distances(query, pq_dists, debug);
+      if (debug)
+        std::cout << "6" << std::endl;
 
       // query <-> neighbor list
       float *dist_scratch = query_scratch->aligned_dist_scratch;
@@ -1583,6 +1603,7 @@ namespace diskann {
       _u32 best_medoid = 0;
       float best_dist = (std::numeric_limits<float>::max)();  // float의 최대값
       std::vector<SimpleNeighbor> medoid_dists;
+
       for (_u64 cur_m = 0; cur_m < num_medoids; cur_m++) {
         float cur_expanded_dist = dist_cmp_float->compare(
             query_float, centroid_data + aligned_dim * cur_m,
@@ -1663,14 +1684,15 @@ namespace diskann {
             auto                    id = id_disk_map[frontier[i]];
             std::pair<_u32, char *> fnhood;
             fnhood.first = id;
-            fnhood.second =
-                sector_scratch +
-                sector_scratch_idx * SECTOR_LEN;  // sector_scratch에 저장
-            sector_scratch_idx++;
-            frontier_nhoods.push_back(fnhood);
+
             // uint32_t pageid = 1 + id / this->nnodes_per_sector;
             // lock_pageid.push_back(pageid);
             if (fnhood.first < this->disk_nnodes) {
+              fnhood.second =
+                  sector_scratch +
+                  sector_scratch_idx * SECTOR_LEN;  // sector_scratch에 저장
+              sector_scratch_idx++;
+              frontier_nhoods.push_back(fnhood);
               frontier_read_reqs.emplace_back(
                   (id / (SECTOR_LEN / (this->data_dim * sizeof(T)))) *
                       SECTOR_LEN,
@@ -1678,6 +1700,11 @@ namespace diskann {
             }
 
             else {
+              fnhood.second =
+                  tmp_scratch +
+                  tmp_scratch_idx *
+                      (this->data_dim * sizeof(T));  // sector_scratch에 저장
+              tmp_scratch_idx++;
               memcpy(fnhood.second,
                      this->tmp_disk_index + (fnhood.first - this->disk_nnodes) *
                                                 this->data_dim * sizeof(T),
@@ -1800,7 +1827,9 @@ namespace diskann {
           }
 
           else {
+            std::cout << "3" << std::endl;
             node_disk_buf = (char *) frontier_nhood.second;
+            std::cout << "4" << std::endl;
           }
           // OFFSET_TO_NODE(frontier_nhood.second, frontier_nhood.first);
           unsigned *node_buf;  // 이웃 개수 + 이웃 버퍼(원본 제외)
@@ -1818,9 +1847,12 @@ namespace diskann {
           }
 
           else {
+            std::cout << "5" << std::endl;
             node_buf = this->tmp_mem_index +
                        (frontier_nhood.first - this->disk_nnodes) *
                            (this->max_degree + 1);
+
+            std::cout << "6" << std::endl;
           }
 
           _u64 nnbrs = (_u64)(*node_buf);  // nnbrs: 이웃 개수
@@ -1831,7 +1863,7 @@ namespace diskann {
           T *node_fp_coords_copy = data_buf + (data_buf_idx * aligned_dim);
           data_buf_idx++;
           memcpy(node_fp_coords_copy, node_fp_coords,
-                 data_dim * sizeof(T));  // data_buf에 원본 벡터 복사
+                 data_dim * sizeof(T));  // data_buf에 원본 벡터 복사 왜?
           float cur_expanded_dist = dist_cmp->compare(
               query, node_fp_coords_copy,
               (unsigned) aligned_dim);  // 쿼리 - frontier 실제 거리
@@ -1857,6 +1889,7 @@ namespace diskann {
             node_nbrs[i] = id_disk_map[node_nbrs[i]];
           }
           // compute node_nbrs <-> query dist in PQ space
+          // std::cout << "pqpqpqpqpq" << std::endl;
           cpu_timer.reset();
           compute_dists(node_nbrs, nnbrs, dist_scratch);
           if (stats != nullptr) {

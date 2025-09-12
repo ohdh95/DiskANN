@@ -44,8 +44,8 @@ namespace diskann {
         nullptr;  // MUST BE AT LEAST  [N_CHUNKS * MAX_DEGREE]
     T *    aligned_query_T = nullptr;
     float *aligned_query_float = nullptr;
-    char *tmp_scratch = nullptr;
-    _u64  tmp_idx = 0;
+    char * tmp_scratch = nullptr;
+    _u64   tmp_idx = 0;
     void   reset() {
       coord_idx = 0;
       sector_idx = 0;
@@ -133,10 +133,11 @@ namespace diskann {
     // setting up thread-specific data
 
     // implemented
-    DISKANN_DLLEXPORT size_t cached_beam_search(
-        const T *query, const _u64 k_search, const _u64 l_search,
-        TagT *res_tags, float *res_dists, const _u64 beam_width,
-        QueryStats *stats = nullptr, std::vector<uint32_t> id_disk_map = {});
+    DISKANN_DLLEXPORT size_t
+    cached_beam_search(const T *query, const _u64 k_search, const _u64 l_search,
+                       TagT *res_tags, float *res_dists, const _u64 beam_width,
+                       QueryStats *          stats = nullptr,
+                       std::vector<uint32_t> id_disk_map = {}, int debug = 0);
 
     DISKANN_DLLEXPORT size_t cached_beam_search_ids(
         const T *query, const _u64 k_search, const _u64 l_search,
@@ -160,7 +161,7 @@ namespace diskann {
         tsl::robin_map<uint32_t, T *> *coord_map = nullptr,
         QueryStats *stats = nullptr, ThreadData<T> *passthrough_data = nullptr,
         tsl::robin_set<uint32_t> *exclude_nodes = nullptr,
-        std::vector<uint32_t>     id_disk_map = {});
+        std::vector<uint32_t> id_disk_map = {}, int debug = 0);
     std::vector<uint32_t> get_init_ids() {
       return std::vector<uint32_t>(this->medoids,
                                    this->medoids + this->num_medoids);

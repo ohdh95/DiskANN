@@ -314,7 +314,7 @@ namespace diskann {
   }
 
   void
-  populate_chunk_distances(const T* query_vec, float* dist_vec) {
+  populate_chunk_distances(const T* query_vec, float* dist_vec, int debug = 0) {
     memset(dist_vec, 0, 256 * n_chunks * sizeof(float));
     // chunk wise distance computation
     for (_u64 chunk = 0; chunk < n_chunks; chunk++) {

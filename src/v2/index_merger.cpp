@@ -190,11 +190,19 @@ namespace diskann {
     std::vector<Neighbor>         pool;
     tsl::robin_map<uint32_t, T *> coord_map;
 
+    if (insert_id % 1000 == 0) {
+      std::cout << "1" << std::endl;
+    }
     this->offset_iterate_to_fixed_point(data_load, this->l_index, pool,
                                         coord_map, this->id_disk_map);
-
+    if (insert_id % 1000 == 0) {
+      std::cout << "2" << std::endl;
+    }
     std::vector<uint32_t> new_nhood;
     prune_neighbors(coord_map, pool, new_nhood);
+    if (insert_id % 1000 == 0) {
+      std::cout << "3" << std::endl;
+    }
     if (new_nhood.size() > range) {
       std::cout << "***ERROR*** After prune, for insert_id: " << insert_id
                 << " found " << new_nhood.size()
@@ -208,6 +216,9 @@ namespace diskann {
     // }
 
     this->disk_index->insert_node(insert_id, data_load, new_nhood);
+    if (insert_id % 1000 == 0) {
+      std::cout << "4" << std::endl;
+    }
     // std:: cout << "coord_map size: " << coord_map.size() << std::endl;
     // for (auto x : coord_map) {
     //   std::cout << "x.first: " << x.first << std::endl;
@@ -218,6 +229,30 @@ namespace diskann {
     // }
 
     // std::cout << "tmp_id: " << this->disk_index->tmp_id << std::endl;
+
+    // data for jth point
+    const T *j_coords = data_load;
+    const uint32_t j_id = insert_id;
+
+    // compute PQ coords
+    std::vector<uint8_t> j_pq_coords =
+        this->disk_index->deflate_vector(j_coords);
+    //        std::vector<uint8_t> j_pq_coords(this->pq_nchunks,0);
+    if (insert_id % 1000 == 0) {
+      std::cout << "5" << std::endl;
+    }
+    // directly copy into PQFlashIndex PQ data
+    const uint64_t j_pq_offset =
+        (uint64_t) j_id * (uint64_t) this->pq_nchunks;
+    // insert_loc[j] = j_renamed;
+    auto res_pq = this->disk_index->get_pq_config();
+    this->pq_data = res_pq.first;
+    this->pq_nchunks = res_pq.second;
+    memcpy(this->pq_data + j_pq_offset, j_pq_coords.data(),
+            this->pq_nchunks * sizeof(uint8_t));
+            if (insert_id % 1000 == 0) {
+      std::cout << "6" << std::endl;
+    }
   }
 
   template<typename T, typename TagT>
