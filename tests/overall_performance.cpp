@@ -474,8 +474,8 @@ void insertion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
       sync_index.get_disk_index()->get_thread_data());
   // #pragma omp parallel for num_threads(NUM_INSERT_THREADS)
   for (_s64 i = 0; i < (_s64) insert_vec.size(); i++) {
-    std::cout << "Inserting " << i << "-th / " << insert_vec.size()
-              << " point with id=" << insert_vec[i] << std::endl;
+    // std::cout << "Inserting " << i << "-th / " << insert_vec.size()
+    //           << " point with id=" << insert_vec[i] << std::endl;
     diskann::Timer insert_timer;
     // sync_index.insert(data_load + aligned_dim * i, insert_vec[i]); // (원본
     // 데이터, id)
