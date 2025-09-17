@@ -15,7 +15,8 @@
 #include <omp.h>
 #include <future>
 #include <cmath>
-
+#include <cstdlib>
+#include <typeinfo>
 #include "tcmalloc/malloc_extension.h"
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -186,16 +187,14 @@ namespace diskann {
     Timer total_insert_timer;
     this->insert_times.resize(MAX_INSERT_THREADS, 0.0);
     this->delta_times.resize(MAX_INSERT_THREADS, 0.0);
-
-    std::vector<Neighbor>         pool;
-    tsl::robin_map<uint32_t, T *> coord_map;
+    std::vector<Neighbor>         pool; // 이웃
+    tsl::robin_map<uint32_t, T *> coord_map; // <id, 원본 벡터>
 
     this->offset_iterate_to_fixed_point(data_load, this->l_index, pool,
                                         coord_map, this->id_disk_map);
 
     std::vector<uint32_t> new_nhood;
     prune_neighbors(coord_map, pool, new_nhood);
-    
     if (new_nhood.size() > range) {
       std::cout << "***ERROR*** After prune, for insert_id: " << insert_id
                 << " found " << new_nhood.size()
@@ -207,8 +206,151 @@ namespace diskann {
     //     std::cout << "new_nhood[" << i << "]: " << x << std::endl;
     //     i++;
     // }
-
+    
     this->disk_index->insert_node(insert_id, data_load, new_nhood);
+    int cnt = 0;
+    // std::cout << "---------------insert_id: " << insert_id << std::endl;
+    // std::cout << "new_nhood size: " << new_nhood.size() << std::endl;
+    for (auto id : new_nhood) {
+      std::vector<Neighbor> reverse_pool;
+      tsl::robin_map<uint32_t, T*> reverse_coord_map; // <id, 원본 벡터> 저장 해야됨
+      std::vector<uint32_t> reverse_new_nhood;
+      float dist = -1;
+      T* coord;
+      // std::cout << "this->range: " << this->range << std::endl;
+      TagT* nbr = new TagT[this->range + 1];
+      uint32_t nnbr;
+      
+      // diskann::alloc_aligned((void**)&coord, this->aligned_ndims * sizeof(float), 32);
+      coord = (T*)::aligned_alloc(32, this->aligned_ndims * sizeof(T));
+      // std::cout << "T: " << typeid(T).name() << std::endl;
+      // std::cout << "TagT: " << typeid(TagT).name() << std::endl;
+      this->disk_index->get_coord(id, coord);
+
+      reverse_coord_map.emplace(id, coord);
+      reverse_coord_map.emplace(insert_id, data_load);
+
+      this->disk_index->get_nbr(id, nbr);
+      
+      nnbr = nbr[0];
+      // nbr = nbr + 1;
+      // std::cout << "nnbr: " << nnbr << std::endl;
+      T* nbr_coord[nnbr]; // new T[this->aligned_ndims];
+
+      for (int i = 0; i < nnbr; i++) {
+        diskann::alloc_aligned((void**)&nbr_coord[i], this->aligned_ndims * sizeof(T), 32);
+      }
+
+      for (uint32_t i = 0; i < nnbr; i++) {
+        this->disk_index->get_coord(nbr[i + 1], nbr_coord[i]);
+        reverse_coord_map.emplace(nbr[i + 1], nbr_coord[i]);
+        float d = 0; //this->dist_cmp->compare(coord, nbr_coord[i], this->aligned_ndims);
+        auto tmp_nbr_coord = nbr_coord[i];
+        #pragma omp simd reduction(+ : d) aligned(coord, tmp_nbr_coord : 32)
+        for (_s32 j = 0; j < (_s32) this->aligned_ndims; j++) {
+          d += (coord[j] - tmp_nbr_coord[j]) * (coord[j] - tmp_nbr_coord[j]);
+        }
+        reverse_pool.push_back(Neighbor(nbr[i + 1], d, true));
+      }
+
+      auto it = std::find_if(pool.begin(), pool.end(), [id](const Neighbor& neighbor) {
+        return neighbor.id == id;
+      });
+
+      if (it != pool.end()) {
+        dist = it->distance;
+      }
+      
+      reverse_pool.push_back(Neighbor(insert_id, dist, true));
+
+      // 일단 추가해서 32가 넘는지 확인
+      //std::cout << "reverse edge 이웃 갯수: " << reverse_pool.size() << std::endl;
+      // std::cout << "range: " << this->range << std::endl;
+      // 32가 넘으면 prune
+      if (reverse_pool.size() > this->range) {
+        if (id == 943509) {
+          for (auto q : reverse_pool) {
+            std::cout << "pool id: " << q.id << std::endl;
+          }
+        }
+        prune_neighbors(reverse_coord_map, reverse_pool, reverse_new_nhood);
+        if (id == 943509) {
+          std::cout << "=========================" << std::endl;
+          for (auto q : reverse_new_nhood) {
+            std::cout << "pool id: " << q << std::endl;
+          }
+        }
+        // std::sort(reverse_pool.begin(), reverse_pool.end());
+        std::sort(reverse_pool.begin(), reverse_pool.end(),
+              [](const Neighbor& a, const Neighbor& b) {
+                  return a > b; // 내림차순 비교
+              });
+        // if (insert_id == 950000) {
+        //   std::cout << "================id: " << id << std::endl;
+        //   for (auto l : reverse_pool) {
+        //     std::cout << "l.id: " << l.id << " l.dist: " << l.distance << std::endl;
+        //   }
+        // }
+        // reverse_pool.erase(reverse_pool.begin() + this->range + 1, reverse_pool.end());
+
+        for (auto iter = reverse_pool.begin(); iter != reverse_pool.end(); iter++) {
+          if (iter->id == insert_id) {
+            if (std::next(iter) != reverse_pool.end()) {
+              reverse_new_nhood.push_back(iter->id);
+              iter++;
+            }
+
+            else {
+              reverse_new_nhood.pop_back();
+              reverse_new_nhood.push_back(iter->id);
+            }
+          }
+
+          else {
+            reverse_new_nhood.push_back(iter->id);
+          }
+        }
+      }
+      
+      else {
+        for (auto &n : reverse_pool) {
+          reverse_new_nhood.push_back(n.id);
+        }
+        // std::sort(reverse_new_nhood.begin(), reverse_new_nhood.end());
+      }
+      if (reverse_new_nhood.size() > this->range) {
+        std::cout << "***ERROR***" << std::endl;
+      }
+      reverse_new_nhood.insert(reverse_new_nhood.begin(), reverse_new_nhood.size());
+      for (auto x : reverse_new_nhood) {
+        if (x == insert_id) {
+          // std::cout << "reverse_new_nhood contains insert_id: " << insert_id << std::endl;
+          cnt++;
+          break;
+        }
+      }
+      if (id >= this->disk_index->return_nd()) {
+        // std::cout << "id: " << id << std::endl;
+        // std::cout << "this->disk_npts: " << this->disk_npts << std::endl;
+        
+        uint32_t* start = this->disk_index->get_tmp_mem_index() + (id - this->disk_index->return_nd()) * (this->range + 1);
+        memcpy(start,
+               reverse_new_nhood.data(), sizeof(uint32_t) * reverse_new_nhood.size());
+      }
+      
+      else {
+        uint32_t* start = this->disk_index->get_mem_index() + id * (this->range + 1);
+        memcpy(start,
+               reverse_new_nhood.data(), sizeof(uint32_t) * reverse_new_nhood.size());
+      }
+
+      diskann::aligned_free((void *) coord);
+      for (int i = 0; i < nnbr; i++) {
+        diskann::aligned_free((void *) nbr_coord[i]);
+      }
+      delete[] nbr;
+    }
+    std::cout << "insert_id: " << insert_id << " cnt: " << cnt << std::endl;
     
     // std:: cout << "coord_map size: " << coord_map.size() << std::endl;
     // for (auto x : coord_map) {
@@ -509,6 +651,16 @@ namespace diskann {
           auto iter_left = coord_map.find(pool[t].id);
           // HAS to be in coord_map since it was expanded during
           // iterate_to_fixed_point
+          if (iter_right == coord_map.end()) {
+            std::cout << "ERROR: could not find id: " << p.id
+                      << " in coord_map of size: " << coord_map.size()
+                      << std::endl;
+          }
+          if (iter_left == coord_map.end()) {
+            std::cout << "ERROR: could not find id: " << pool[t].id
+                      << " in coord_map of size: " << coord_map.size()
+                      << std::endl;
+          }
           assert(iter_right != coord_map.end());
           assert(iter_left != coord_map.end());
           // WARNING :: correct, but not fast -- NO SIMD version if using MSVC,

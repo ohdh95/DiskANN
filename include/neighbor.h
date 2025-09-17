@@ -24,6 +24,9 @@ namespace diskann {
     inline bool operator<(const Neighbor &other) const {
       return distance < other.distance;
     }
+    inline bool operator>(const Neighbor &other) const {
+      return distance > other.distance;
+    }
     inline bool operator==(const Neighbor &other) const {
       return (id == other.id);
     }

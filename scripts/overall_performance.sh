@@ -21,6 +21,7 @@ mkdir "$delete_dir"/_index_temp
 rm -r "$delete_dir"/index_temp
 mkdir -p "$delete_dir"/index_temp
 
+set -e
 cd /home/ohdh95/work/DiskANN/build && make -j 
 cd /home/ohdh95/work/DiskANN/run
 

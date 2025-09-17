@@ -198,17 +198,10 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
             << std::endl;
 
   auto s = std::chrono::high_resolution_clock::now();
-  std::cout << "query_num: " << query_num << std::endl;
 #pragma omp parallel for num_threads(NUM_SEARCH_THREADS)
   for (int64_t i = 0; i < (int64_t) query_num; i++) {
-    if (flag)
-      std::cout << "?" << std::endl;
     auto qs = std::chrono::high_resolution_clock::now();
-    if (flag)
-      std::cout << "!" << std::endl;
     stats[i].n_current_used = std::numeric_limits<double>::max();
-    if (flag)
-      std::cout << "&" << std::endl;
     sync_index.search_sync(query + i * query_aligned_dim, recall_at, L,
                            query_result_tags + i * recall_at,
                            query_result_dists + i * recall_at, stats + i, flag);
@@ -216,6 +209,11 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
     auto qe = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = qe - qs;
     latency_stats[i] = diff.count() * 1000;
+    for (int j = 0; j < recall_at; j++) {
+      if (query_result_tags[i * recall_at + j] == 0) {
+        std::cout << "gmaaaaaaaaaaaaaaaaaaaaa" << std::endl;
+      }
+    }
   }
   auto e = std::chrono::high_resolution_clock::now();
 
@@ -325,14 +323,8 @@ void _sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
   std::cout << "query_num: " << query_num << std::endl;
   // #pragma omp parallel for num_threads(NUM_SEARCH_THREADS)
   for (int64_t i = 0; i < (int64_t) query_num; i++) {
-    if (flag)
-      std::cout << "?" << std::endl;
     auto qs = std::chrono::high_resolution_clock::now();
-    if (flag)
-      std::cout << "!" << std::endl;
     stats[i].n_current_used = std::numeric_limits<double>::max();
-    if (flag)
-      std::cout << "&" << std::endl;
     sync_index.search_sync(query + i * query_aligned_dim, recall_at, L,
                            query_result_tags + i * recall_at,
                            query_result_dists + i * recall_at, stats + i, flag);
@@ -473,15 +465,15 @@ void insertion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
   sync_index.get_merger()->set_disk_thread_data(
       sync_index.get_disk_index()->get_thread_data());
   // #pragma omp parallel for num_threads(NUM_INSERT_THREADS)
-  for (_s64 i = 0; i < (_s64) insert_vec.size(); i++) {
-    // std::cout << "Inserting " << i << "-th / " << insert_vec.size()
-    //           << " point with id=" << insert_vec[i] << std::endl;
+  for (_s64 i = 0; i < (_s64) npts; i++) {
+    std::cout << "Inserting " << i << "-th / " << insert_vec.size()
+              << " point with id=" << insert_vec[i] << std::endl;
     diskann::Timer insert_timer;
     // sync_index.insert(data_load + aligned_dim * i, insert_vec[i]); // (원본
     // 데이터, id)
     sync_index.get_merger()->insert_point(data_load + aligned_dim * i,
                                           insert_vec[i]);
-
+    sync_index.push_id_disk_map(insert_vec[i]);
     insert_latencies[i] = ((double) insert_timer.elapsed());
   }
   std::cout << "Waiting for all insert to finish" << std::endl;
@@ -589,6 +581,8 @@ void update(const std::string& data_path, const unsigned L_mem,
 
   diskann::Timer timer;
   // dim = 128;
+  uint32_t a = 1;
+  TagT     b = a;
   diskann::load_aligned_bin<T>(data_path.c_str(), data_load, num_points, dim,
                                aligned_dim);
   std::cout << "Loaded full data for driver: (" << num_points << "," << dim
@@ -614,16 +608,16 @@ void update(const std::string& data_path, const unsigned L_mem,
   std::string currentFileName = truthset_file + std::to_string(0) + ".fbin";
   std::cout << "Current_GT_File: " << currentFileName << std::endl;
   begin_time = globalTimer.elapsed() / 1.0e6f;
-  sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
-                     sync_index, currentFileName, inactive_tags, base_num,
-                     false, true);
+  // sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
+  //                    sync_index, currentFileName, inactive_tags, base_num,
+  //                    false, true);
 
   int               batch = step;
   int               inMmeorySize = 0;
   int               res = base_num;
   std::future<void> merge_future;
 
-  for (int i = 0; i < batch; i++) {
+  for (int i = 0; i < 1; i++) {
     std::cout << "Batch: " << i << " Total Batch : " << step << std::endl;
 
     diskann::Timer        batch_timer;
@@ -680,7 +674,7 @@ void update(const std::string& data_path, const unsigned L_mem,
     // if ((i + 1) % 10 == 0)
     sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
                        sync_index, currentFileName, inactive_tags, res, true,
-                       true, 0);
+                       true);
   }
   std::cout << "Update over" << std::endl;
   delete[] data_load;

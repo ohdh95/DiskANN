@@ -237,6 +237,52 @@ namespace diskann {
       return this->mem_index;
     }
 
+    DISKANN_DLLEXPORT uint32_t *get_tmp_mem_index() {
+      return this->tmp_mem_index;
+    }
+
+    DISKANN_DLLEXPORT void get_nbr(uint32_t id, TagT *buf) {
+      // std::cout << "This->disk_nnodes: " << this->disk_nnodes << std::endl;
+      if (id >= this->disk_nnodes) {
+        uint32_t *start = this->tmp_mem_index +
+                          (id - this->disk_nnodes) * (this->max_degree + 1);
+
+        for (int i = 0; i < this->max_degree + 1; i++) {
+          buf[i] = start[i];
+        }
+
+        return;
+      }
+
+      else {
+        uint32_t *start = this->mem_index + id * (this->max_degree + 1);
+
+        for (int i = 0; i < this->max_degree + 1; i++) {
+          buf[i] = start[i];
+        }
+
+        return;
+      }
+    }
+
+    DISKANN_DLLEXPORT void get_coord(uint32_t id, T *buf) {
+      // std::cout << "this->disk_nnodes: " << this->disk_nnodes << std::endl;
+      if (id >= this->disk_nnodes) {
+        uint32_t *start =
+            this->tmp_disk_index + (id - this->disk_nnodes) * this->aligned_dim;
+        for (int i = 0; i < this->aligned_dim; i++)
+          buf[i] = start[i];
+        return;
+      }
+
+      else {
+        std::ifstream disk_reader(_disk_index_file.c_str(), std::ios::binary);
+        disk_reader.seekg(id * this->aligned_dim * sizeof(T));
+        disk_reader.read((char *) (buf), this->aligned_dim * sizeof(T));
+        return;
+      }
+    }
+
     // index info
     // nhood of node `i` is in sector: [i / nnodes_per_sector]
     // offset in sector: [(i % nnodes_per_sector) * max_node_len]
@@ -276,7 +322,7 @@ namespace diskann {
     FixedChunkPQTable<T> pq_table;
 
     // 이웃 버퍼
-    uint32_t *mem_index = nullptr;  // uint32_t[max_degree * disk_nnodes]
+    uint32_t *mem_index = nullptr;  // uint32_t[(max_degree + 1) * disk_nnodes]
     // 버퍼에 있는 벡터 ID
     std::vector<uint32_t> tmp_ids;  // uint32_t[max_degree * disk_nnodes]
     // 임시 이웃 버퍼

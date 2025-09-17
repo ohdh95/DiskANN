@@ -84,6 +84,10 @@ namespace diskann {
       return _merger;
     }
 
+    void push_id_disk_map(uint32_t id) {
+      id_disk_map.push_back(id);
+    }
+
    protected:
 
     //_active_index flag will be modified only inside this function

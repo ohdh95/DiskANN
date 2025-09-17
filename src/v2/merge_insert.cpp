@@ -125,6 +125,7 @@ namespace diskann {
                     << std::endl;
       exit(-1);
     }
+    
     for (uint32_t i = 0; i < _disk_index->return_nd(); i++) {
       id_disk_map.push_back(i);
     }
@@ -245,6 +246,7 @@ namespace diskann {
   void MergeInsert<T, TagT>::search_sync(const T* query, const uint64_t K,
                                          const uint64_t search_L, TagT* tags,
                                          float* distances, QueryStats* stats, int debug) {
+                                          // std::cout << "id_disk_map size: " << this->id_disk_map.size() << std::endl;
     auto diskSearchBegin = std::chrono::high_resolution_clock::now();
     bool reachLimit = false;
     std::set<Neighbor_Tag<TagT>> best;
