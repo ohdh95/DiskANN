@@ -268,7 +268,7 @@ namespace diskann {
     DISKANN_DLLEXPORT void get_coord(uint32_t id, T *buf) {
       // std::cout << "this->disk_nnodes: " << this->disk_nnodes << std::endl;
       if (id >= this->disk_nnodes) {
-        uint32_t *start =
+        float *start =
             this->tmp_disk_index + (id - this->disk_nnodes) * this->aligned_dim;
         for (int i = 0; i < this->aligned_dim; i++)
           buf[i] = start[i];
@@ -328,7 +328,7 @@ namespace diskann {
     // 임시 이웃 버퍼
     uint32_t *tmp_mem_index = nullptr;  // uint32_t[max_degree * disk_nnodes]
     // 임시 원본 버퍼
-    uint32_t *tmp_disk_index = nullptr;  // uint32_t[max_degree * disk_nnodes]
+    float *tmp_disk_index = nullptr;  // uint32_t[max_degree * disk_nnodes]
     // distance comparator
     std::shared_ptr<Distance<T>>     dist_cmp;
     std::shared_ptr<Distance<float>> dist_cmp_float;

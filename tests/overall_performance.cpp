@@ -209,11 +209,11 @@ void sync_search_kernel(T* query, size_t query_num, size_t query_aligned_dim,
     auto qe = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = qe - qs;
     latency_stats[i] = diff.count() * 1000;
-    for (int j = 0; j < recall_at; j++) {
-      if (query_result_tags[i * recall_at + j] == 0) {
-        std::cout << "gmaaaaaaaaaaaaaaaaaaaaa" << std::endl;
-      }
-    }
+    // for (int j = 0; j < recall_at; j++) {
+    //   if (query_result_tags[i * recall_at + j] == 0) {
+    //     std::cout << "gmaaaaaaaaaaaaaaaaaaaaa" << std::endl;
+    //   }
+    // }
   }
   auto e = std::chrono::high_resolution_clock::now();
 
@@ -473,8 +473,8 @@ void insertion_kernel(T* data_load, diskann::MergeInsert<T, TagT>& sync_index,
     // 데이터, id)
     sync_index.get_merger()->insert_point(data_load + aligned_dim * i,
                                           insert_vec[i]);
-    sync_index.push_id_disk_map(insert_vec[i]);
     insert_latencies[i] = ((double) insert_timer.elapsed());
+    sync_index.push_id_disk_map(insert_vec[i]);
   }
   std::cout << "Waiting for all insert to finish" << std::endl;
   // sync_index.destruct_index_merger();
@@ -608,16 +608,16 @@ void update(const std::string& data_path, const unsigned L_mem,
   std::string currentFileName = truthset_file + std::to_string(0) + ".fbin";
   std::cout << "Current_GT_File: " << currentFileName << std::endl;
   begin_time = globalTimer.elapsed() / 1.0e6f;
-  // sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
-  //                    sync_index, currentFileName, inactive_tags, base_num,
-  //                    false, true);
+  sync_search_kernel(query, query_num, query_aligned_dim, recall_at, Lsearch,
+                     sync_index, currentFileName, inactive_tags, base_num,
+                     false, true);
 
   int               batch = step;
   int               inMmeorySize = 0;
   int               res = base_num;
   std::future<void> merge_future;
 
-  for (int i = 0; i < 1; i++) {
+  for (int i = 0; i < batch; i++) {
     std::cout << "Batch: " << i << " Total Batch : " << step << std::endl;
 
     diskann::Timer        batch_timer;

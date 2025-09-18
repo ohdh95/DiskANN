@@ -209,13 +209,13 @@ namespace diskann {
     
     this->disk_index->insert_node(insert_id, data_load, new_nhood);
     int cnt = 0;
-    // std::cout << "---------------insert_id: " << insert_id << std::endl;
-    // std::cout << "new_nhood size: " << new_nhood.size() << std::endl;
+    
+    // 역엣지 추가
     for (auto id : new_nhood) {
       std::vector<Neighbor> reverse_pool;
       tsl::robin_map<uint32_t, T*> reverse_coord_map; // <id, 원본 벡터> 저장 해야됨
       std::vector<uint32_t> reverse_new_nhood;
-      float dist = -1;
+      float dist = 0;
       T* coord;
       // std::cout << "this->range: " << this->range << std::endl;
       TagT* nbr = new TagT[this->range + 1];
@@ -236,7 +236,7 @@ namespace diskann {
       // nbr = nbr + 1;
       // std::cout << "nnbr: " << nnbr << std::endl;
       T* nbr_coord[nnbr]; // new T[this->aligned_ndims];
-
+      // std::cout << "T: " << typeid(T).name() << std::endl;
       for (int i = 0; i < nnbr; i++) {
         diskann::alloc_aligned((void**)&nbr_coord[i], this->aligned_ndims * sizeof(T), 32);
       }
@@ -253,13 +253,28 @@ namespace diskann {
         reverse_pool.push_back(Neighbor(nbr[i + 1], d, true));
       }
 
-      auto it = std::find_if(pool.begin(), pool.end(), [id](const Neighbor& neighbor) {
-        return neighbor.id == id;
-      });
-
-      if (it != pool.end()) {
-        dist = it->distance;
+      for (auto n : pool) {
+        if (n.id == id) {
+          dist = n.distance;
+          // std::cout << "Found id: " << id << " distance: " << dist << std::endl;
+          break;
+        }
       }
+
+      if (dist == 0) {
+        std::cout << "**********ERROR**********" << std::endl;
+      }
+      // auto it = std::find_if(pool.begin(), pool.end(), [id](const Neighbor& neighbor) {
+      //   return neighbor.id == id;
+      // });
+
+      // if (it != pool.end()) {
+      //   dist = it->distance;
+      // }
+
+      // else {
+      //   std::cout << "**********ERROR**********" << std::endl;
+      // }
       
       reverse_pool.push_back(Neighbor(insert_id, dist, true));
 
@@ -268,23 +283,21 @@ namespace diskann {
       // std::cout << "range: " << this->range << std::endl;
       // 32가 넘으면 prune
       if (reverse_pool.size() > this->range) {
-        if (id == 943509) {
-          for (auto q : reverse_pool) {
-            std::cout << "pool id: " << q.id << std::endl;
-          }
-        }
-        prune_neighbors(reverse_coord_map, reverse_pool, reverse_new_nhood);
-        if (id == 943509) {
-          std::cout << "=========================" << std::endl;
-          for (auto q : reverse_new_nhood) {
-            std::cout << "pool id: " << q << std::endl;
-          }
-        }
         // std::sort(reverse_pool.begin(), reverse_pool.end());
-        std::sort(reverse_pool.begin(), reverse_pool.end(),
-              [](const Neighbor& a, const Neighbor& b) {
-                  return a > b; // 내림차순 비교
-              });
+        // if (id == 943509) {
+        //   for (auto q : reverse_pool) {
+        //     std::cout << "pool id: " << q.id << " distance: " << q.distance << std::endl;
+        //   }
+        // }
+        prune_neighbors(reverse_coord_map, reverse_pool, reverse_new_nhood);
+        // std::sort(reverse_pool.begin(), reverse_pool.end());
+        // if (id == 943509) {
+        //   std::cout << "=========================" << std::endl;
+        //   for (auto q : reverse_new_nhood) {
+        //     std::cout << "pool id: " << q  << std::endl;
+        //   }
+        // }
+        // std::sort(reverse_pool.begin(), reverse_pool.end());
         // if (insert_id == 950000) {
         //   std::cout << "================id: " << id << std::endl;
         //   for (auto l : reverse_pool) {
@@ -293,23 +306,23 @@ namespace diskann {
         // }
         // reverse_pool.erase(reverse_pool.begin() + this->range + 1, reverse_pool.end());
 
-        for (auto iter = reverse_pool.begin(); iter != reverse_pool.end(); iter++) {
-          if (iter->id == insert_id) {
-            if (std::next(iter) != reverse_pool.end()) {
-              reverse_new_nhood.push_back(iter->id);
-              iter++;
-            }
+        // for (auto iter = reverse_pool.begin(); iter != reverse_pool.end(); iter++) {
+        //   if (iter->id == insert_id) {
+        //     if (std::next(iter) != reverse_pool.end()) {
+        //       reverse_new_nhood.push_back(iter->id);
+        //       iter++;
+        //     }
 
-            else {
-              reverse_new_nhood.pop_back();
-              reverse_new_nhood.push_back(iter->id);
-            }
-          }
+        //     else {
+        //       reverse_new_nhood.pop_back();
+        //       reverse_new_nhood.push_back(iter->id);
+        //     }
+        //   }
 
-          else {
-            reverse_new_nhood.push_back(iter->id);
-          }
-        }
+        //   else {
+        //     reverse_new_nhood.push_back(iter->id);
+        //   }
+        // }
       }
       
       else {
@@ -546,6 +559,16 @@ namespace diskann {
 
     // reduce and pick top maxc expanded nodes only
     std::sort(exp_node_info.begin(), exp_node_info.end());
+    int i = 0;
+    // std::cout << "this->maxc: " << this->maxc << std::endl;
+    // for (auto x : exp_node_info) {
+    //   if (x.id >= this->disk_index->return_nd()) {
+    //     std::cout << "i: " << i << std::endl;
+    //     std::cout << "x.id: " << x.id << std::endl;
+    //     std::cout << "x.distance: " << x.distance << std::endl;
+    //   }
+    //   i++;
+    // }
     //    expanded_nodes_info.clear();
     expanded_nodes_info.reserve(this->maxc);
     expanded_nodes_info.insert(expanded_nodes_info.end(), exp_node_info.begin(),
@@ -576,6 +599,7 @@ namespace diskann {
 
     occlude_list(pool, coord_map, result, occlude_factor);
 
+    std::sort(result.begin(), result.end());
     pruned_list.clear();
     assert(result.size() <= range);
     for (auto iter : result) {

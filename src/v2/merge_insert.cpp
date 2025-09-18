@@ -145,11 +145,13 @@ namespace diskann {
     uint32_t maxc = _paras_disk.Get<unsigned>("C");
     float    alpha = _paras_disk.Get<float>("alpha");
     if (id_map) {
-      _merger = new diskann::StreamingMerger<T, TagT>(
+      if (_merger == nullptr) {
+        _merger = new diskann::StreamingMerger<T, TagT>(
           (uint32_t) _dim, _dist_comp, _dist_metric, (uint32_t) _beamwidth,
           range, l_index, alpha, maxc, _single_file_index, id_map, &id_disk_map);
 
-      _merger->set_disk_index(this->get_disk_index());
+        _merger->set_disk_index(this->get_disk_index());
+      }
       }
     else
       _merger = new diskann::StreamingMerger<T, TagT>(

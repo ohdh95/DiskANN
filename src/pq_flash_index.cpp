@@ -891,7 +891,7 @@ namespace diskann {
     if (this->tmp_disk_index == nullptr) {
       size_t tmp_len = this->data_dim * disk_nnodes * 0.1 * sizeof(T);
 
-      this->tmp_disk_index = (uint32_t *) pmem_map_file(
+      this->tmp_disk_index = (float *) pmem_map_file(
           tmp_disk_index_name.c_str(), tmp_len, PMEM_FILE_CREATE, 0666,
           &mapped_len, &is_pmem);
 
@@ -996,18 +996,35 @@ namespace diskann {
     // fill in `indices`, `distances`
 
     _u64 res_count = 0;
+    int  i = 0;
+    // for (auto x : expanded_nodes_info) {
+    //   if (x.id >= this->num_points && debug == true) {
+    //     std::cout << "i: " << i << ", x.id: " << x.id
+    //               << ", x.distance: " << x.distance << std::endl;
+    //   }
+    //   i++;
+    // }
     for (uint32_t i = 0;
          i < l_search && res_count < k_search && i < expanded_nodes_info.size();
          i++) {
       if (this->num_frozen_points == 1 &&
-          expanded_nodes_info[i].id == this->frozen_location)
+          expanded_nodes_info[i].id == this->frozen_location) {
         continue;
+      }
 
       if (distances != nullptr) {
         distances[res_count] = expanded_nodes_info[i].distance;
       }
       if (res_tags != nullptr && this->tags != nullptr) {
-        res_tags[res_count] = this->tags[expanded_nodes_info[i].id];
+        if (expanded_nodes_info[i].id >= 950000 && debug == true) {
+          std::cout << "i: " << i << ", expanded_nodes_info[i].id: "
+                    << expanded_nodes_info[i].id
+                    << ", this->tags[expanded_nodes_info[i].id]: "
+                    << this->tags[expanded_nodes_info[i].id] << std::endl;
+        }
+        res_tags[res_count] =
+            expanded_nodes_info[i]
+                .id;  // this->tags[expanded_nodes_info[i].id];
       }
       res_count++;
     }
@@ -1049,7 +1066,8 @@ namespace diskann {
   template<typename T, typename TagT>
   void PQFlashIndex<T, TagT>::insert_node(TagT insert_id, T *data_load,
                                           std::vector<uint32_t> new_nhood) {
-    memcpy(this->tmp_disk_index + (this->data_dim * sizeof(T) * this->tmp_id),
+    memcpy(this->tmp_disk_index +
+               (this->data_dim * sizeof(T) * (insert_id - this->disk_nnodes)),
            data_load, this->data_dim * sizeof(T));
 
     uint32_t *nbr_copy = new uint32_t[this->max_degree + 1];
@@ -1064,12 +1082,12 @@ namespace diskann {
       nbr_copy[i] = 0;
     }
 
-    memcpy(this->tmp_mem_index +
-               (this->max_degree + 1) * sizeof(TagT) * this->tmp_id,
+    memcpy(this->tmp_mem_index + (this->max_degree + 1) * sizeof(TagT) *
+                                     (insert_id - this->disk_nnodes),
            nbr_copy, (this->max_degree + 1) * sizeof(TagT));
 
     delete[] nbr_copy;
-    tmp_id++;
+    // tmp_id++;
   }
 
   template<typename T, typename TagT>
@@ -1081,7 +1099,7 @@ namespace diskann {
       std::vector<uint32_t> id_disk_map, int debug) {
     // only pull from sector scratch if ThreadData<T> not passed as arg
     if (id_disk_map.size() == 0) {
-      std::cout << "id_disk_map size: " << id_disk_map.size() << std::endl;
+      // std::cout << "id_disk_map size: " << id_disk_map.size() << std::endl;
       auto          diskSearchBegin = std::chrono::high_resolution_clock::now();
       ThreadData<T> data;
       if (passthrough_data == nullptr) {
@@ -1479,8 +1497,6 @@ namespace diskann {
     }
 
     else {
-      if (debug)
-        std::cout << "id_disk_map size: " << id_disk_map.size() << std::endl;
       // coord_map 비어있음
       // only pull from sector scratch if ThreadData<T> not passed as arg
       // if (debug)
@@ -1897,6 +1913,12 @@ namespace diskann {
               coord_map->insert(
                   std::make_pair(frontier_nhood.first, node_fp_coords_copy));
             }
+            // if (frontier_nhood.first >= this->disk_nnodes) {
+            //   std::cout << "frontier_nhood.first: " << frontier_nhood.first
+            //             << std::endl;
+            //   std::cout << "cur_expanded_dist: " << cur_expanded_dist
+            //             << std::endl;
+            // }
             full_retset.push_back(
                 Neighbor(frontier_nhood.first, cur_expanded_dist, true));
             // std::cout << "Node #" << frontier_nhood.first
@@ -1978,8 +2000,12 @@ namespace diskann {
                 });
       // std::cout << "Full retset size: " << full_retset.size() << std::endl;
       // for (auto &ind : full_retset) {
-      //   std::cout << ind.id << " " << ind.distance << std::endl;
+      //   if (ind.id >= this->disk_nnodes)
+      //     std::cout << "ind.id: " << ind.id << " ind.distance: " <<
+      //     ind.distance
+      //               << std::endl;
       // }
+      // std::cout << "====================" << std::endl;
       // return data to ConcurrentQueue only if popped from it
       if (passthrough_data == nullptr) {
         this->thread_data.push(data);

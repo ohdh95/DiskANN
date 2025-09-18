@@ -188,7 +188,7 @@ void print_metadata_and_node(const std::vector<Metadata> &metadata_vector,
   }
   std::cout << "Disk Index File Size: " << meta.disk_index_file_size << "\n\n";
 
-  std::cout << typeid(T).name() << "\n";
+  std::cout << (T).name() << "\n";
   std::cout << "Number of Points (npts): " << meta.npts << "\n";
   std::cout << "Actual Number of Points: " << node_vector.size() << "\n\n";
 
